@@ -1,7 +1,7 @@
 {
   "expectations": [
     {
-      "id": "f578b9e7-4d71-4340-8a9d-23d84fa1b3d8",
+      "id": "40f03f23-5553-41aa-8364-db5c673df39d",
       "kwargs": {
         "max_value": 2000000,
         "min_value": 1
@@ -11,7 +11,7 @@
       "type": "expect_table_row_count_to_be_between"
     },
     {
-      "id": "659543da-35b2-4328-9edc-c27c9e8086cf",
+      "id": "a7d05e2e-bdd0-42ea-baf2-f3388ff57362",
       "kwargs": {
         "column": "customer_id"
       },

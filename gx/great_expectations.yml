@@ -11,6 +11,18 @@ fluent_datasources:
           batch_check_stg_sales_bronze_source:
             id: d4a3b50e-d134-4f40-9d0f-f2a60e6f022f
             partitioner:
+  ds_check_stg_customers_bronze_target_c5312d73:
+    type: pandas
+    id: 8897dcf1-85bd-47cf-bc4c-d67d4e1f2b89
+    assets:
+      data_check_stg_customers_bronze_target:
+        type: dataframe
+        id: e647f536-d63a-4419-acd4-5a8a3254a181
+        batch_metadata: {}
+        batch_definitions:
+          batch_check_stg_customers_bronze_target:
+            id: 6b3a9cda-014a-4344-8f4d-63f615976977
+            partitioner:
 config_version: 3.0
 expectations_store_name: expectations_store
 validation_results_store_name: validation_results_store

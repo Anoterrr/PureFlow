@@ -8,8 +8,8 @@ sources:
       - name: sales_silver
         description: "Sales transactions cleaned and validated by PureFlow Factory."
         meta:
-          external_location: "s3://silver/sales/dt={{ var('execution_date') }}"
+          s3_path: "s3://silver/sales/dt={{ var('execution_date') }}"
       - name: customers_silver
         description: "Customer data cleaned and validated by PureFlow Factory."
         meta:
-          external_location: "s3://silver/customers/dt={{ var('execution_date') }}"
+          s3_path: "s3://silver/customers/dt={{ var('execution_date') }}"

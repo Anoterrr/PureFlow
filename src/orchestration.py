@@ -117,9 +117,6 @@ def inject_corrupt_bronze(context):
 
 # --- 3. Jobs & Definitions ---
 
-# Default configuration to avoid 404s for today's date if data isn't generated
-DEFAULT_DATE = "2026-04-19"
-
 # Config for core business logic assets (Bronze, Silver)
 core_pipeline_ops_config = {
     "stg_customers_bronze": {"config": {"execution_date": DEFAULT_DATE}},
@@ -168,13 +165,9 @@ quality_test_job = define_asset_job(  # pylint: disable=assignment-from-no-retur
 from pipelines.customers import customers_bronze_assets, customers_silver_assets
 from pipelines.sales import sales_bronze_assets, sales_silver_assets
 
-all_assets = [
-    *customers_bronze_assets,
-    *customers_silver_assets,
-    *sales_bronze_assets,
-    *sales_silver_assets,
-    *load_assets_from_current_module(),
-]
+# load_assets_from_current_module() will find all assets defined or imported above,
+# including those in the imported lists, so we don't need to manually unpack them.
+all_assets = load_assets_from_current_module()
 
 # Resource for Great Expectations
 gx_resource = GreatExpectationsResource(ge_root_dir=os.fspath(Path(__file__).parent.parent / "gx"))

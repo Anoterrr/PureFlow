@@ -13,7 +13,7 @@ snapshot-paths: ["snapshots"]
 
 vars:
   # Centralized execution date with environment variable override
-  execution_date: "{{ env_var('EXECUTION_DATE', '2026-04-19') }}"
+  execution_date: '{{ env_var("EXECUTION_DATE", "2026-04-19") }}'
 
 on-run-start:
   - "{{ create_external_sources() }}"
