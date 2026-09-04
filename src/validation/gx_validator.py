@@ -1,7 +1,8 @@
 """Generic validation engine using Great Expectations (GX)."""
 
+import contextlib
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import great_expectations as gx
 from great_expectations.core.validation_definition import ValidationDefinition
@@ -13,18 +14,17 @@ from core.quality import get_gx_context, get_or_create_suite
 
 def validate_data(
     path: str,
-    expectations: List[Dict[str, Any]],
+    expectations: list[dict[str, Any]],
     data_format: str = "parquet",
     suite_name: str = "dynamic_suite",
-    context: Optional[Any] = None,
-) -> Tuple[bool, str, Optional[str]]:
+    context: Any | None = None,
+) -> tuple[bool, str, str | None]:
     """
     Generic execution engine for validation.
     Returns (success: bool, report_url: str, error_message: Optional[str]).
     """
-    # pylint: disable=too-many-locals,too-many-branches,too-many-statements
     factory = ConnectionFactory()
-    
+
     # Use provided context or get/create a new one
     if context is None:
         context = get_gx_context()
@@ -34,11 +34,10 @@ def validate_data(
     # 1. Read data via DuckDB into Pandas
     # This leverages DuckDB's S3/Parquet/Delta speed but uses GX's stable Pandas engine
     import duckdb
-    import pandas as pd
-    
+
     success = True
     error_msg = None
-    
+
     # Default report URL (index page)
     web_report_url = "http://localhost:8082/index.html"
     base_docs_path = os.path.abspath("gx/uncommitted/data_docs/local_site")
@@ -59,22 +58,24 @@ def validate_data(
         with duckdb.connect() as conn:
             factory.setup_s3_auth(conn)
             logger.info("⚡ [Validator] Fetching data via DuckDB...")
-            df = conn.execute(f"SELECT * FROM {read_func}(?)", [path]).df()
-        
+            # read_func comes from the fixed whitelist above, not external input
+            df = conn.execute(f"SELECT * FROM {read_func}(?)", [path]).df()  # nosec B608
+
         if df.empty:
             logger.warning("⚠️ [Validator] Data is empty at %s", path)
 
         # 2. Setup GX Pandas Datasource
         # We use a unique datasource name per run to avoid any persistence conflicts in the YAML/Context
         import uuid
+
         run_id = str(uuid.uuid4())[:8]
         datasource_name = f"ds_{suite_name}_{run_id}"
-        
+
         datasource = context.data_sources.add_pandas(name=datasource_name)
-        
+
         # 3. Setup Suite and Add Expectations
         suite = get_or_create_suite(context, suite_name)
-        
+
         # Clear existing expectations to ensure only the ones defined in the asset are used
         for expectation in list(suite.expectations):
             suite.delete_expectation(expectation)
@@ -87,9 +88,7 @@ def validate_data(
                 exp_class = getattr(gx.expectations, exp_name)
                 suite.add_expectation(exp_class(**kwargs))
             except (AttributeError, TypeError) as e:
-                logger.warning(
-                    "⚠️ [Validator] Could not add expectation %s: %s", exp_name, str(e)
-                )
+                logger.warning("⚠️ [Validator] Could not add expectation %s: %s", exp_name, str(e))
 
         # 4. Setup Data Asset
         asset_name = f"data_{suite_name}"
@@ -100,10 +99,8 @@ def validate_data(
         # 5. Run Validation
         val_name = f"val_{suite_name}_{run_id}"
         try:
-            try:
+            with contextlib.suppress(Exception):
                 context.validation_definitions.delete(val_name)
-            except Exception:
-                pass
 
             val_def = context.validation_definitions.add(
                 ValidationDefinition(name=val_name, data=batch_def, suite=suite)
@@ -121,17 +118,15 @@ def validate_data(
         # Ensure Data Docs are built
         context.build_data_docs()
 
-    except Exception as e:  # pylint: disable=broad-exception-caught
+    except Exception as e:
         logger.error("❌ [Validator] Validation technical failure: %s", str(e))
         success = False
         error_msg = f"Technical validation failure: {str(e)}"
     finally:
         # Cleanup ephemeral datasource and val_def to keep context lean
-        try:
+        with contextlib.suppress(Exception):
             context.validation_definitions.delete(val_name)
             context.data_sources.delete(datasource_name)
-        except Exception:
-            pass
 
     # Dynamic path to the generated Data Docs for this specific suite
     report_path = os.path.join(base_docs_path, "validations", suite_name)
@@ -148,7 +143,7 @@ def validate_data(
 
             if html_files:
                 latest_report_file = max(html_files, key=os.path.getmtime)
-    except Exception as e:  # pylint: disable=broad-exception-caught
+    except Exception as e:
         logger.warning("Could not find latest report: %s", str(e))
 
     # Convert local file path to HTTP URL

@@ -26,36 +26,27 @@ dependencies = [
     "sqlfluff>=3.0.0",
     "sqlfluff-templater-dbt>=3.0.0",
     "bandit>=1.7.0",
-    "pylint>=3.0.0"
+    "ruff>=0.8.0",
+    "pre-commit>=3.8.0"
 ]
 
-[tool.poetry]
-package-mode = false
+[tool.uv]
+package = false
 
-[tool.pylint.MASTER]
-init-hook = 'import sys, os; sys.path.extend([os.path.join(os.getcwd(), "src"), "."])'
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+extend-exclude = ["dbt/target", "dbt/dbt_packages", "gx/uncommitted", "dagster_home"]
 
-[tool.pylint."MESSAGES CONTROL"]
-disable = [
-    "raw-checker-failed",
-    "bad-inline-option",
-    "locally-disabled",
-    "file-ignored",
-    "suppressed-message",
-    "useless-suppression",
-    "deprecated-pragma",
-    "use-symbolic-message-instead",
-    "too-few-public-methods",
-    "duplicate-code",
-    "import-error",
-    "no-name-in-module",
-    "wrong-import-position",
-    "protected-access",
-    "pointless-statement"
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = [
+    "E501",   # line length handled by ruff format
 ]
 
-[tool.pylint.TYPECHECK]
-ignored-modules = ["great_expectations", "duckdb", "pandas", "numpy", "pytest"]
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
 
 [tool.sqlfluff.core]
 templater = "dbt"
@@ -74,7 +65,3 @@ indent_unit = "space"
 [tool.pytest.ini_options]
 pythonpath = ["src", "."]
 testpaths = ["tests"]
-
-[build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"

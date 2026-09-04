@@ -27,7 +27,7 @@ config_version: 3.0
 expectations_store_name: expectations_store
 validation_results_store_name: validation_results_store
 checkpoint_store_name: checkpoint_store
-plugins_directory: /home/anoter/dev/PureFlow-Arch/gx/plugins
+plugins_directory: plugins
 stores:
   expectations_store:
     class_name: ExpectationsStore
@@ -59,7 +59,6 @@ data_docs_sites:
       base_directory: uncommitted/data_docs/local_site
     site_index_builder:
       class_name: DefaultSiteIndexBuilder
-config_variables_file_path: 
-  /home/anoter/dev/PureFlow-Arch/gx/uncommitted/config_variables.yml
+config_variables_file_path: uncommitted/config_variables.yml
 analytics_enabled:
 data_context_id: cb18d2b6-ff70-402b-a6c5-4ad1ee031c46

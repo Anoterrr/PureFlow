@@ -1,6 +1,8 @@
 #!/bin/bash
 # setup_perms.sh: Ensures 'analyst' (UID 1000) owns the data volume.
-# Use this on the host terminal (Arch WSL) if you encounter Permission Denied errors.
+# Use this on the host terminal (Linux/WSL) if you encounter Permission Denied
+# errors on bind-mounted volumes. NOT needed on Docker Desktop (Mac/Windows),
+# which maps bind-mount permissions differently — skip this script there.
 
 set -e
 

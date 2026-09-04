@@ -1,5 +1,7 @@
 #!/bin/bash
-# scripts/setup_minio.sh: Automates the creation of required buckets in MinIO.
+# scripts/setup_minio.sh: Manual fallback to create required buckets in MinIO.
+# NOTE: not normally needed — the `minio_init` service in docker-compose.yml
+# already creates these buckets automatically on `docker-compose up`.
 
 # Load environment variables from .env if it exists
 if [ -f .env ]; then
@@ -9,7 +11,10 @@ fi
 # Configuration (using defaults from .env or connection.py)
 STORAGE_USER=${STORAGE_USER:-admin}
 STORAGE_PASSWORD=${STORAGE_PASSWORD:-strongpassword123}
-S3_ENDPOINT=${S3_ENDPOINT:-http://localhost:9000}
+# host.docker.internal lets the mc container reach MinIO's published port on
+# the host, and works on Docker Desktop (Mac/Windows) as well as Linux with
+# the --add-host flag below (Docker 20.10+).
+S3_ENDPOINT=${S3_ENDPOINT:-http://host.docker.internal:9000}
 
 # Buckets to create
 BUCKETS=(
@@ -22,12 +27,10 @@ BUCKETS=(
 
 echo "🌊 Initializing MinIO buckets at $S3_ENDPOINT..."
 
-# Use the minio/mc docker image to avoid local installation dependency
-# We use the host network to reach localhost:9000 if running from host
-# or we assume 'minio' hostname if running inside the docker network.
-# For simplicity, we'll try to detect if we're inside docker or use localhost.
-
-MC_COMMAND="docker run --rm --network host minio/mc"
+# Use the minio/mc docker image to avoid local installation dependency.
+# --add-host is required on Linux for host.docker.internal to resolve; it's a
+# no-op on Docker Desktop (Mac/Windows), where that hostname already works.
+MC_COMMAND="docker run --rm --add-host=host.docker.internal:host-gateway minio/mc"
 
 # 1. Configure MC alias
 $MC_COMMAND alias set pureflow "$S3_ENDPOINT" "$STORAGE_USER" "$STORAGE_PASSWORD"

@@ -36,7 +36,5 @@ def test_generate_base_sales():
 def test_get_s3_paths():
     """Ensures S3 paths are correctly formatted."""
     paths = get_s3_paths("2024-01-01")
-    assert (
-        paths["sales_landing"] == "s3://landing-zone/sales_erp/dt=2024-01-01/sales.csv"
-    )
+    assert paths["sales_landing"] == "s3://landing-zone/sales_erp/dt=2024-01-01/sales.csv"
     assert paths["sales_silver"] == "s3://silver/sales_erp/dt=2024-01-01/"

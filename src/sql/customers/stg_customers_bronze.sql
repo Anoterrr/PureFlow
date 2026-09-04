@@ -1,8 +1,8 @@
 -- Bronze transformation for Customers (Raw to Bronze)
-SELECT 
-    id as customer_id, 
-    name, 
-    email, 
+SELECT
+    id as customer_id,
+    name,
+    email,
     city,
-    state 
+    state
 FROM source_data

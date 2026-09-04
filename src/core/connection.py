@@ -4,8 +4,9 @@ import os
 
 import duckdb
 from dotenv import load_dotenv
-from core.logger import logger
+
 from core.config import get_s3_connection_config
+from core.logger import logger
 
 # Only load .env if variables are not already set (prevents overriding Docker env with localhost)
 load_dotenv(override=False)
@@ -28,9 +29,12 @@ class ConnectionFactory:
 
         conn = duckdb.connect(db_path)
 
-        # Configurations for Arch WSL / 32GB RAM
-        conn.execute("SET memory_limit = '16GB'")  # Reserve half for DuckDB
-        conn.execute("SET threads = 4")  # Adjust according to your processor
+        # Configurable resource limits (defaults are conservative to fit lower-RAM
+        # environments, e.g. Docker Desktop on Mac). Override via .env if needed.
+        memory_limit = os.getenv("DUCKDB_MEMORY_LIMIT", "4GB")
+        threads = os.getenv("DUCKDB_THREADS", "2")
+        conn.execute(f"SET memory_limit = '{memory_limit}'")
+        conn.execute(f"SET threads = {threads}")
 
         # Install extensions to read from MinIO (S3) and Delta Lake
         conn.execute("INSTALL httpfs;")
@@ -47,8 +51,11 @@ class ConnectionFactory:
         """Configures credentials for DuckDB to see MinIO using the official Secrets Manager (Hyper-Redundant)."""
         s3_cfg = get_s3_connection_config()
 
-        logger.info("🔌 [Conn] Configuring S3 access with endpoint: %s (Style: %s)", 
-                    s3_cfg['s3_endpoint'], s3_cfg['s3_url_style'])
+        logger.info(
+            "🔌 [Conn] Configuring S3 access with endpoint: %s (Style: %s)",
+            s3_cfg["s3_endpoint"],
+            s3_cfg["s3_url_style"],
+        )
 
         # Enforce path style and endpoint (Session + Global)
         conn.execute("SET s3_url_style = 'path'")
@@ -57,13 +64,13 @@ class ConnectionFactory:
         conn.execute(f"SET GLOBAL s3_endpoint = '{s3_cfg['s3_endpoint']}'")
         conn.execute("SET s3_use_ssl = false")
         conn.execute("SET GLOBAL s3_use_ssl = false")
-        
+
         # Use Secrets Manager with CREDENTIAL_CHAIN and EXPLICIT ENDPOINT
         conn.execute(f"""
             CREATE OR REPLACE SECRET (
                 TYPE S3,
                 PROVIDER CREDENTIAL_CHAIN,
-                ENDPOINT '{s3_cfg['s3_endpoint']}',
+                ENDPOINT '{s3_cfg["s3_endpoint"]}',
                 URL_STYLE 'path',
                 USE_SSL false
             );

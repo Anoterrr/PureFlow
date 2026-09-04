@@ -4,11 +4,11 @@ services:
     image: quay.io/minio/minio:latest
     container_name: pureflow_storage
     ports:
-      - "9000:9000" # API
-      - "9001:9001" # Web Console
+      - "127.0.0.1:9000:9000" # API
+      - "127.0.0.1:9001:9001" # Web Console
     environment:
-      MINIO_ROOT_USER: ${STORAGE_USER}
-      MINIO_ROOT_PASSWORD: ${STORAGE_PASSWORD}
+      MINIO_ROOT_USER: ${STORAGE_USER:-admin}
+      MINIO_ROOT_PASSWORD: ${STORAGE_PASSWORD:-strongpassword123}
     volumes:
       - ./data/minio_data:/data
     command: server /data --console-address ":9001"
@@ -28,11 +28,11 @@ services:
       minio:
         condition: service_healthy
     environment:
-      - STORAGE_USER=${STORAGE_USER}
-      - STORAGE_PASSWORD=${STORAGE_PASSWORD}
+      - STORAGE_USER=${STORAGE_USER:-admin}
+      - STORAGE_PASSWORD=${STORAGE_PASSWORD:-strongpassword123}
     entrypoint: >
       /bin/sh -c "
-      until (/usr/bin/mc alias set pureflow http://minio:9000 $${STORAGE_USER} $${STORAGE_PASSWORD}) do echo 'Waiting for MinIO...' && sleep 1; done;
+      until (/usr/bin/mc alias set pureflow http://minio:9000 $${STORAGE_USER:-admin} $${STORAGE_PASSWORD:-strongpassword123}) do echo 'Waiting for MinIO...' && sleep 1; done;
       /usr/bin/mc mb pureflow/${S3_BUCKET_LANDING:-landing-zone} || true;
       /usr/bin/mc mb pureflow/${S3_BUCKET_BRONZE:-bronze} || true;
       /usr/bin/mc mb pureflow/${S3_BUCKET_SILVER:-silver} || true;
@@ -51,12 +51,12 @@ services:
     environment:
       - DAGSTER_HOME=/app/dagster_home
       - PYTHONPATH=/app/src
-      - STORAGE_USER=${STORAGE_USER}
-      - STORAGE_PASSWORD=${STORAGE_PASSWORD}
+      - STORAGE_USER=${STORAGE_USER:-admin}
+      - STORAGE_PASSWORD=${STORAGE_PASSWORD:-strongpassword123}
       - S3_ENDPOINT=http://minio:9000
       - DUCKDB_PATH=/app/data/pureflow_lakehouse.db
-      - AWS_ACCESS_KEY_ID=${STORAGE_USER}
-      - AWS_SECRET_ACCESS_KEY=${STORAGE_PASSWORD}
+      - AWS_ACCESS_KEY_ID=${STORAGE_USER:-admin}
+      - AWS_SECRET_ACCESS_KEY=${STORAGE_PASSWORD:-strongpassword123}
       - AWS_ENDPOINT_URL=http://minio:9000
       - AWS_REGION=us-east-1
       - DUCKDB_S3_USE_SSL=false
@@ -69,14 +69,14 @@ services:
       - .:/app
       - ./dagster_home:/app/dagster_home
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     # COMPILATION GATE: Ensures dbt manifest is fresh before starting Dagster
     command: >
       bash -c "echo '🚀 Initializing PureFlow Environment...' &&
                mkdir -p /app/data &&
-               cd dbt && 
-               dbt compile --profiles-dir . --profile pureflow && 
-               cd /app && 
+               cd dbt &&
+               dbt compile --profiles-dir . --profile pureflow &&
+               cd /app &&
                echo '✅ dbt Manifest updated. Starting Dagster...' &&
                dagster dev -h 0.0.0.0 -p 3000 -f /app/src/orchestration.py"
     healthcheck:
@@ -98,12 +98,12 @@ services:
     build: .
     container_name: pureflow_dashboard
     environment:
-      - STORAGE_USER=${STORAGE_USER}
-      - STORAGE_PASSWORD=${STORAGE_PASSWORD}
+      - STORAGE_USER=${STORAGE_USER:-admin}
+      - STORAGE_PASSWORD=${STORAGE_PASSWORD:-strongpassword123}
       - S3_ENDPOINT=http://minio:9000
       - PYTHONPATH=/app/src
-      - AWS_ACCESS_KEY_ID=${STORAGE_USER}
-      - AWS_SECRET_ACCESS_KEY=${STORAGE_PASSWORD}
+      - AWS_ACCESS_KEY_ID=${STORAGE_USER:-admin}
+      - AWS_SECRET_ACCESS_KEY=${STORAGE_PASSWORD:-strongpassword123}
       - AWS_ENDPOINT_URL=http://minio:9000
       - AWS_REGION=us-east-1
       - AWS_S3_ADDRESSING_STYLE=path
@@ -112,7 +112,7 @@ services:
     volumes:
       - .:/app
     ports:
-      - "8501:8501"
+      - "127.0.0.1:8501:8501"
     command: streamlit run /app/src/dashboard.py
     depends_on:
       minio:
@@ -125,14 +125,14 @@ services:
     build: .
     container_name: pureflow_dbt_docs
     environment:
-      - STORAGE_USER=${STORAGE_USER}
-      - STORAGE_PASSWORD=${STORAGE_PASSWORD}
+      - STORAGE_USER=${STORAGE_USER:-admin}
+      - STORAGE_PASSWORD=${STORAGE_PASSWORD:-strongpassword123}
       - S3_ENDPOINT=http://minio:9000
       - DUCKDB_PATH=/app/data/pureflow_lakehouse.db
       - DBT_READ_ONLY=true
       - PYTHONPATH=/app/src
-      - AWS_ACCESS_KEY_ID=${STORAGE_USER}
-      - AWS_SECRET_ACCESS_KEY=${STORAGE_PASSWORD}
+      - AWS_ACCESS_KEY_ID=${STORAGE_USER:-admin}
+      - AWS_SECRET_ACCESS_KEY=${STORAGE_PASSWORD:-strongpassword123}
       - AWS_ENDPOINT_URL=http://minio:9000
       - AWS_REGION=us-east-1
       - AWS_S3_ADDRESSING_STYLE=path
@@ -141,13 +141,13 @@ services:
     volumes:
       - .:/app
     ports:
-      - "8081:8081"
-      - "8082:8082"
+      - "127.0.0.1:8081:8081"
+      - "127.0.0.1:8082:8082"
     # Port 8081 for dbt, 8082 for GX Reports
     command: >
-      bash -c "python3 -m http.server 8082 --directory /app/gx/uncommitted/data_docs/local_site & 
-               cd /app/dbt && 
-               dbt docs generate --profiles-dir . --profile pureflow && 
+      bash -c "python3 -m http.server 8082 --directory /app/gx/uncommitted/data_docs/local_site &
+               cd /app/dbt &&
+               dbt docs generate --profiles-dir . --profile pureflow &&
                dbt docs serve --profiles-dir . --profile pureflow --port 8081 --host 0.0.0.0"
     depends_on:
       dagster:

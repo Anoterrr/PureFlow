@@ -6,6 +6,7 @@ import duckdb
 import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
+
 from core.config import get_s3_connection_config
 
 # Only load .env if variables are not already set (prevents overriding Docker env with localhost)
@@ -14,9 +15,7 @@ load_dotenv(override=False)
 # --- Page Config ---
 st.set_page_config(page_title="PureFlow BI Dashboard", layout="wide")
 st.title("🌊 PureFlow-Arch: Gold Business Insights")
-st.markdown(
-    "This dashboard reads directly from the **Gold Layer** (S3/MinIO) using DuckDB."
-)
+st.markdown("This dashboard reads directly from the **Gold Layer** (S3/MinIO) using DuckDB.")
 
 
 # --- Database Setup ---
@@ -50,7 +49,7 @@ def load_gold_data():
 
     try:
         return conn.execute("SELECT * FROM read_parquet(?)", [gold_path]).df()
-    except Exception as e:  # pylint: disable=broad-exception-caught
+    except Exception as e:
         st.error(f"Error loading gold data: {e}")
         return pd.DataFrame()
 

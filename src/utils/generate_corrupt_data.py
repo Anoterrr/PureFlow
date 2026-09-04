@@ -14,10 +14,7 @@ def corrupt_landing_zone(execution_date=None):
     base_date = execution_date or BASE_DATE
     s3_paths = get_s3_paths(base_date=base_date)
 
-    logger.warning(
-        "🧨 [Corruptor] Corrupting Landing Zone data for date %s...",
-        base_date
-    )
+    logger.warning("🧨 [Corruptor] Corrupting Landing Zone data for date %s...", base_date)
 
     # 1. Corrupt Sales (CSV) - Inject Null IDs and Negative Prices
     # Column names must match what stg_sales_bronze.sql expects:
@@ -68,10 +65,7 @@ def corrupt_bronze_layer(execution_date=None):
     base_date = execution_date or BASE_DATE
     s3_paths = get_s3_paths(base_date=base_date)
 
-    logger.warning(
-        "🧨 [Corruptor] Corrupting Bronze Layer for date %s...",
-        base_date
-    )
+    logger.warning("🧨 [Corruptor] Corrupting Bronze Layer for date %s...", base_date)
 
     # Inject sales with NULL product names in Bronze
     # Bronze format: id, customer_id, product, price, sale_date (casted from date)
@@ -126,10 +120,7 @@ def corrupt_silver_layer(execution_date=None):
     base_date = execution_date or BASE_DATE
     s3_paths = get_s3_paths(base_date=base_date)
 
-    logger.warning(
-        "🧨 [Corruptor] Corrupting Silver Layer (DELTA) for date %s...",
-        base_date
-    )
+    logger.warning("🧨 [Corruptor] Corrupting Silver Layer (DELTA) for date %s...", base_date)
 
     # Corrupt Sales Silver (Delta) - Extreme prices
     # Silver format: id, customer_id, product, price, sale_date

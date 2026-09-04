@@ -19,9 +19,7 @@ sales_bronze_assets = DataPipelineFactory.create_asset(
         "path": "s3://{{ group }}/sales_erp/dt={{ execution_date }}/{{ name }}{{ extension }}",
         "format": "parquet",
     },
-    sql_transform=DataPipelineFactory.load_sql(
-        os.path.join(SQL_DIR, "stg_sales_bronze.sql")
-    ),
+    sql_transform=DataPipelineFactory.load_sql(os.path.join(SQL_DIR, "stg_sales_bronze.sql")),
     source_expectations=[
         {
             "expectation": "ExpectTableRowCountToBeBetween",
@@ -41,7 +39,7 @@ sales_bronze_assets = DataPipelineFactory.create_asset(
 sales_silver_assets = DataPipelineFactory.create_asset(
     name="sales_silver",
     group_name="silver",
-    depends_on=["stg_sales_bronze"], # Point directly to bronze asset
+    depends_on=["stg_sales_bronze"],  # Point directly to bronze asset
     source={
         "path": "s3://bronze/sales_erp/dt={{ execution_date }}/stg_sales_bronze.parquet",
         "format": "parquet",
@@ -50,9 +48,7 @@ sales_silver_assets = DataPipelineFactory.create_asset(
         "path": "s3://{{ group }}/sales/dt={{ execution_date }}",
         "format": "delta",
     },
-    sql_transform=DataPipelineFactory.load_sql(
-        os.path.join(SQL_DIR, "sales_silver.sql")
-    ),
+    sql_transform=DataPipelineFactory.load_sql(os.path.join(SQL_DIR, "sales_silver.sql")),
     target_expectations=[
         {
             "expectation": "ExpectColumnValuesToBeBetween",

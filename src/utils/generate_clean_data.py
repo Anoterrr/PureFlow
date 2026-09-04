@@ -26,7 +26,8 @@ def generate_clean_big_data(execution_date=None):
     # created_at is an extra technical metadata field
     customers["created_at"] = [base_date] * n_customers
 
-    df_customers = pd.DataFrame(customers)  # pylint: disable=unused-variable
+    # DuckDB looks this up by variable name from the local scope in the COPY below
+    df_customers = pd.DataFrame(customers)  # noqa: F841
 
     logger.info(
         "📤 Writing customers directly to Landing Zone: %s",
@@ -45,14 +46,11 @@ def generate_clean_big_data(execution_date=None):
         amount_range=(10.0, 5000.0),
         base_date=base_date,
     )
-    df_sales = pd.DataFrame(sales)  # pylint: disable=unused-variable
+    # DuckDB looks this up by variable name from the local scope in the COPY below
+    df_sales = pd.DataFrame(sales)  # noqa: F841
 
-    logger.info(
-        "📤 Writing sales directly to Landing Zone: %s", s3_paths["sales_landing"]
-    )
-    conn.execute(
-        f"COPY df_sales TO '{s3_paths['sales_landing']}' (FORMAT 'CSV', HEADER TRUE)"
-    )
+    logger.info("📤 Writing sales directly to Landing Zone: %s", s3_paths["sales_landing"])
+    conn.execute(f"COPY df_sales TO '{s3_paths['sales_landing']}' (FORMAT 'CSV', HEADER TRUE)")
 
     conn.close()
     logger.info("✅ Clean Big Data generated and written to MinIO successfully!")

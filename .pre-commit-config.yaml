@@ -1,0 +1,40 @@
+repos:
+  # Fast, general-purpose file hygiene checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: check-merge-conflict
+
+  # Python lint + format, security, and SQL lint — run through the project's own
+  # uv-managed environment so they see the exact same config/deps as `uv run ...`
+  # locally and in CI (in particular, sqlfluff needs the dbt-duckdb templater).
+  - repo: local
+    hooks:
+      - id: ruff-lint
+        name: ruff lint
+        entry: uv run ruff check --fix
+        language: system
+        types: [python]
+
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        types: [python]
+
+      - id: bandit
+        name: bandit (security)
+        entry: uv run bandit -r src
+        language: system
+        pass_filenames: false
+        types: [python]
+
+      - id: sqlfluff-lint
+        name: sqlfluff lint (dbt/duckdb)
+        entry: uv run sqlfluff lint --dialect duckdb
+        language: system
+        files: \.sql$

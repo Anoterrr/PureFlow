@@ -1,11 +1,12 @@
 """Core Engine for executing data engineering tasks using DuckDB."""
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from deltalake import write_deltalake
+
+from core.config import BASE_DATE, get_s3_connection_config
 from core.connection import ConnectionFactory
 from core.logger import logger
-from core.config import BASE_DATE, get_s3_connection_config
 
 
 class PureFlowEngine:
@@ -15,7 +16,7 @@ class PureFlowEngine:
         self.execution_date = execution_date or BASE_DATE
         self.factory = ConnectionFactory()
 
-    def render_path(self, path: str, context: Optional[Dict[str, str]] = None) -> str:
+    def render_path(self, path: str, context: dict[str, str] | None = None) -> str:
         """
         Renders dynamic variables in paths.
         Context can include: name, group, format.
@@ -51,7 +52,9 @@ class PureFlowEngine:
         # Build quarantine path: s3://bucket/quarantine/dt=YYYY-MM-DD/reason=.../filename
         path_parts = source_path.replace("s3://", "").split("/")
         bucket = path_parts[0]
-        filename = path_parts[-1] if path_parts[-1] else path_parts[-2] # Handle trailing slash for Delta
+        filename = (
+            path_parts[-1] if path_parts[-1] else path_parts[-2]
+        )  # Handle trailing slash for Delta
 
         quarantine_prefix = f"quarantine/dt={self.execution_date}/reason={reason.replace(' ', '_')}"
         target_quarantine_path = f"s3://{bucket}/{quarantine_prefix}/{filename}"
@@ -77,28 +80,28 @@ class PureFlowEngine:
 
             # Use DuckDB's internal S3 copy capabilities
             # This is a 'move' simulated by COPY
+            # read_func comes from the fixed whitelist above, not external input
             conn.execute(
-                f"COPY (SELECT * FROM {read_func}(?)) TO ? (FORMAT 'PARQUET')",
-                [source_path, target_quarantine_path]
+                f"COPY (SELECT * FROM {read_func}(?)) TO ? (FORMAT 'PARQUET')",  # nosec B608
+                [source_path, target_quarantine_path],
             )
 
             return target_quarantine_path
-        except Exception as e:  # pylint: disable=broad-exception-caught
+        except Exception as e:
             # Broad exception caught to prevent engine crash during quarantine attempt
             logger.error("❌ [Engine] Failed to quarantine: %s", str(e))
             return source_path
         finally:
             conn.close()
 
-    # pylint: disable=too-many-arguments, too-many-positional-arguments
     def execute_move_and_transform(
         self,
         source_path: str,
         source_format: str,
         target_path: str,
         target_format: str,
-        sql_transform: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        sql_transform: str | None = None,
+    ) -> dict[str, Any]:
         """
         Executes a move from source to target with an optional SQL transformation.
         Supports DELTA format using delta-rs for proper transaction logs.
@@ -127,13 +130,10 @@ class PureFlowEngine:
 
             # 2. Build the query
             conn.execute(
-                f"CREATE OR REPLACE VIEW source_data AS "
-                f"SELECT * FROM {read_func}('{source_path}')"  # nosec B608
+                f"CREATE OR REPLACE VIEW source_data AS SELECT * FROM {read_func}('{source_path}')"  # nosec B608
             )
 
-            final_query = (
-                sql_transform if sql_transform else "SELECT * FROM source_data"
-            )
+            final_query = sql_transform if sql_transform else "SELECT * FROM source_data"
 
             # 3. Execute and Write
             if target_format.upper() == "DELTA":
@@ -144,7 +144,7 @@ class PureFlowEngine:
 
                 s3_cfg = get_s3_connection_config()
                 # Use the resolved endpoint (which we now force to IP or 'minio')
-                endpoint = s3_cfg['s3_endpoint']
+                endpoint = s3_cfg["s3_endpoint"]
                 if not endpoint.startswith("http"):
                     endpoint = f"http://{endpoint}"
 
@@ -154,14 +154,11 @@ class PureFlowEngine:
                     "secret_access_key": s3_cfg["s3_secret_access_key"],
                     "region": s3_cfg["s3_region"],
                     "allow_http": "true",
-                    "s3_allow_unsafe_rename": "true", # Needed for MinIO/S3 non-atomic renames
+                    "s3_allow_unsafe_rename": "true",  # Needed for MinIO/S3 non-atomic renames
                 }
 
                 write_deltalake(
-                    target_path,
-                    result_arrow,
-                    mode="overwrite",
-                    storage_options=storage_options
+                    target_path, result_arrow, mode="overwrite", storage_options=storage_options
                 )
             else:
                 # Standard DuckDB COPY for other formats
@@ -172,7 +169,9 @@ class PureFlowEngine:
                 conn.execute(copy_query)
                 row_count = conn.execute("SELECT count(*) FROM source_data").fetchone()[0]
 
-            logger.info("✅ [Engine] Success! Processed %d rows using %s.", row_count, target_format)
+            logger.info(
+                "✅ [Engine] Success! Processed %d rows using %s.", row_count, target_format
+            )
 
             return {
                 "status": "success",
@@ -181,7 +180,7 @@ class PureFlowEngine:
                 "format": target_format,
             }
 
-        except Exception as e:  # pylint: disable=broad-exception-caught
+        except Exception as e:
             # Broad exception re-raised after logging for context
             logger.error("❌ [Engine] Failed execution: %s", str(e))
             raise e
