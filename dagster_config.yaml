@@ -1,4 +1,0 @@
-execution:
-  config:
-    multiprocess:
-      max_concurrent: 1
