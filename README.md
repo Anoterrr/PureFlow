@@ -100,7 +100,7 @@ docker-compose up -d --build
 The project architecture and interface previews:
 
 ### 🏗️ Architecture Diagram
-![PureFlow Architecture](docs/pureflow_architecture.png)
+![PureFlow Architecture](docs/pureflow_architecture_data_flow.png)
 *High-level overview of the Medallion flow and technology stack.*
 
 ### 🚀 Dagster UI (Orchestration)
