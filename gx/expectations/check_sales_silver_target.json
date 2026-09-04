@@ -1,7 +1,7 @@
 {
   "expectations": [
     {
-      "id": "0f51200e-a7fc-4df9-88c2-5b817420a663",
+      "id": "8ef0f73b-a192-4525-8c12-5280850ff45a",
       "kwargs": {
         "column": "price",
         "max_value": 10000.0,

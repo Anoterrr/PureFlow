@@ -1,16 +1,23 @@
 """Shared Dagster resources for PureFlow-Arch."""
 
-from dagster import ConfigurableResource
+from datetime import datetime
 
-from core.config import BASE_DATE
+from dagster import ConfigurableResource
 
 
 class ExecutionDateResource(ConfigurableResource):
-    """Supplies the pipeline execution date to assets, defaulting to BASE_DATE.
+    """Supplies the pipeline execution date to assets.
 
-    Replaces per-asset `config_schema={"execution_date": str}` + ops config: every
-    asset gets a working default for free, and a specific run can still override it
-    via the resource's own run config (Launchpad -> resources -> execution_date_resource).
+    No fixed date is baked in: `date` defaults to empty, and `resolved_date`
+    falls back to "today" computed fresh at the moment each asset runs. A
+    specific run can still pin a date via the resource's own run config
+    (Launchpad -> resources -> execution_date_resource -> date), e.g. for a
+    backfill or to reproduce a past run.
     """
 
-    date: str = BASE_DATE
+    date: str = ""
+
+    @property
+    def resolved_date(self) -> str:
+        """The date to use for this run: the configured override, or today."""
+        return self.date or datetime.now().strftime("%Y-%m-%d")

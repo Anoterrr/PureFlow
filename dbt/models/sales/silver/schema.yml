@@ -1,0 +1,8 @@
+version: 2
+
+models:
+  - name: sales_silver
+    description: |
+      ### Camada Silver (Sales)
+      **Propósito:** Dado validado e enriquecido (desconto calculado), pronto para consumo analítico.
+      **Formato:** Delta (via plugin `delta_rw`).

@@ -1,0 +1,8 @@
+version: 2
+
+models:
+  - name: stg_sales_bronze
+    description: |
+      ### Camada Bronze (Sales)
+      **Propósito:** Tipagem e limpeza estrutural mínima do CSV bruto do landing zone.
+      **Formato:** Delta (via plugin `delta_rw`), tabela transacional desde a primeira camada curada.

@@ -12,11 +12,9 @@ macro-paths: ["macros"]
 snapshot-paths: ["snapshots"]
 
 vars:
-  # Centralized execution date with environment variable override
-  execution_date: '{{ env_var("EXECUTION_DATE", "2026-04-19") }}'
-
-on-run-start:
-  - "{{ create_external_sources() }}"
+  # Centralized execution date: overridable via EXECUTION_DATE, otherwise
+  # defaults to this dbt invocation's own start time — no fixed date baked in.
+  execution_date: '{{ env_var("EXECUTION_DATE", run_started_at.strftime("%Y-%m-%d")) }}'
 
 clean-targets:
   - "target"
@@ -24,9 +22,20 @@ clean-targets:
 
 models:
   pureflow_dbt:
+    # Every layer materializes external + writes Delta via the delta_rw plugin
+    # (src/dbt_plugins/delta_write.py) — see each model's delta_table_path.
+    +materialized: external
+    +format: parquet
+    +plugin: delta_rw
     sales:
-      +materialized: table
-      +schema: gold
+      bronze:
+        +schema: bronze
+      silver:
+        +schema: silver
       gold:
-        +materialized: external
-        +format: parquet
+        +schema: gold
+    customers:
+      bronze:
+        +schema: bronze
+      silver:
+        +schema: silver

@@ -1,6 +1,8 @@
 """Module for generating intentionally corrupt data at different layers in S3/MinIO."""
 
-from core.config import BASE_DATE, get_s3_paths
+from deltalake import write_deltalake
+
+from core.config import BASE_DATE, get_delta_storage_options, get_s3_paths
 from core.connection import ConnectionFactory
 from core.logger import logger
 
@@ -8,7 +10,7 @@ from core.logger import logger
 def corrupt_landing_zone(execution_date=None):
     """Corrupts data in the Landing Zone (CSV/JSON)."""
     factory = ConnectionFactory()
-    conn = factory.get_duckdb_conn()
+    conn = factory.get_duckdb_conn(db_path=":memory:")
     factory.setup_s3_auth(conn)
 
     base_date = execution_date or BASE_DATE
@@ -17,7 +19,7 @@ def corrupt_landing_zone(execution_date=None):
     logger.warning("🧨 [Corruptor] Corrupting Landing Zone data for date %s...", base_date)
 
     # 1. Corrupt Sales (CSV) - Inject Null IDs and Negative Prices
-    # Column names must match what stg_sales_bronze.sql expects:
+    # Column names must match what stg_sales_bronze expects:
     # id, customer_id, product, price, date
     conn.execute(
         """
@@ -35,9 +37,13 @@ def corrupt_landing_zone(execution_date=None):
     )
 
     # 2. Corrupt Customers (JSON) - Invalid Emails
-    # Column names must match what stg_customers_bronze.sql expects: id, name, email, city, state
+    # Column names must match what stg_customers_bronze expects: id, name, email, city, state
+    # NOTE: base_date is inlined (not bound as `?`) — a COPY with a placeholder
+    # both inside the SELECT and in the TO clause silently writes nothing on
+    # this DuckDB version (no error raised); base_date is an internal value,
+    # never user input, so inlining it here is safe.
     conn.execute(
-        """
+        f"""
         COPY (
             SELECT
                 range as id,
@@ -45,21 +51,33 @@ def corrupt_landing_zone(execution_date=None):
                 'User ' || range as name,
                 'São Paulo' as city,
                 'SP' as state,
-                ? as created_at
+                '{base_date}' as created_at
             FROM range(1, 51)
         ) TO ? (FORMAT 'JSON', ARRAY TRUE)
-        """,
-        [base_date, s3_paths["customers_landing"]],
+        """,  # nosec B608
+        [s3_paths["customers_landing"]],
     )
 
     conn.close()
     logger.info("✅ Landing Zone corrupted.")
 
 
+def _write_corrupt_delta(conn, query: str, delta_table_path: str) -> None:
+    """Runs `query` and overwrites a Delta table with the result (bronze/silver are Delta now)."""
+    table = conn.execute(query).fetch_arrow_table()
+    write_deltalake(
+        delta_table_path,
+        table,
+        mode="overwrite",
+        schema_mode="overwrite",
+        storage_options=get_delta_storage_options(),
+    )
+
+
 def corrupt_bronze_layer(execution_date=None):
-    """Injects bad data directly into Bronze Parquet files."""
+    """Overwrites the Bronze Delta tables directly with bad data."""
     factory = ConnectionFactory()
-    conn = factory.get_duckdb_conn()
+    conn = factory.get_duckdb_conn(db_path=":memory:")
     factory.setup_s3_auth(conn)
 
     base_date = execution_date or BASE_DATE
@@ -67,11 +85,12 @@ def corrupt_bronze_layer(execution_date=None):
 
     logger.warning("🧨 [Corruptor] Corrupting Bronze Layer for date %s...", base_date)
 
-    # Inject sales with NULL product names in Bronze
-    # Bronze format: id, customer_id, product, price, sale_date (casted from date)
-    conn.execute(
-        """
-        COPY (
+    try:
+        # Inject sales with NULL product names in Bronze
+        # Bronze format: id, customer_id, product, price, sale_date (casted from date)
+        _write_corrupt_delta(
+            conn,
+            """
             SELECT
                 range as id,
                 101 as customer_id,
@@ -82,16 +101,15 @@ def corrupt_bronze_layer(execution_date=None):
                 'sales' as _domain,
                 'corrupted_ingest.csv' as _source_file
             FROM range(1000, 1050)
-        ) TO ? (FORMAT 'PARQUET')
-        """,
-        [s3_paths["sales_bronze"]],
-    )
+            """,
+            s3_paths["sales_bronze"],
+        )
 
-    # Inject customers with null customer_id in Bronze
-    # Bronze format: customer_id, name, email, city, state
-    conn.execute(
-        """
-        COPY (
+        # Inject customers with null customer_id in Bronze
+        # Bronze format: customer_id, name, email, city, state
+        _write_corrupt_delta(
+            conn,
+            """
             SELECT
                 CASE WHEN range % 3 = 0 THEN NULL ELSE range END as customer_id,
                 'Corrupted User' as name,
@@ -102,19 +120,19 @@ def corrupt_bronze_layer(execution_date=None):
                 'customers' as _domain,
                 'corrupted_ingest.json' as _source_file
             FROM range(2000, 2050)
-        ) TO ? (FORMAT 'PARQUET')
-        """,
-        [s3_paths["customers_bronze"]],
-    )
+            """,
+            s3_paths["customers_bronze"],
+        )
+    finally:
+        conn.close()
 
-    conn.close()
     logger.info("✅ Bronze Layer corrupted.")
 
 
 def corrupt_silver_layer(execution_date=None):
-    """Injects bad data directly into Silver Delta tables to test Gold gates."""
+    """Overwrites the Sales Silver Delta table directly with bad data, to test Gold gates."""
     factory = ConnectionFactory()
-    conn = factory.get_duckdb_conn()
+    conn = factory.get_duckdb_conn(db_path=":memory:")
     factory.setup_s3_auth(conn)
 
     base_date = execution_date or BASE_DATE
@@ -122,11 +140,12 @@ def corrupt_silver_layer(execution_date=None):
 
     logger.warning("🧨 [Corruptor] Corrupting Silver Layer (DELTA) for date %s...", base_date)
 
-    # Corrupt Sales Silver (Delta) - Extreme prices
-    # Silver format: id, customer_id, product, price, sale_date
-    conn.execute(
-        """
-        COPY (
+    try:
+        # Corrupt Sales Silver (Delta) - Extreme prices
+        # Silver format: id, customer_id, product, price, sale_date
+        _write_corrupt_delta(
+            conn,
+            """
             SELECT
                 range as id,
                 1 as customer_id,
@@ -135,12 +154,12 @@ def corrupt_silver_layer(execution_date=None):
                 CAST('2026-04-20' AS DATE) as sale_date,
                 now() as _processed_at
             FROM range(5000, 5010)
-        ) TO ? (FORMAT 'DELTA')
-        """,
-        [s3_paths["sales_silver"]],
-    )
+            """,
+            s3_paths["sales_silver"],
+        )
+    finally:
+        conn.close()
 
-    conn.close()
     logger.info("✅ Silver Layer corrupted.")
 
 

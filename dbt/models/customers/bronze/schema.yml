@@ -1,0 +1,8 @@
+version: 2
+
+models:
+  - name: stg_customers_bronze
+    description: |
+      ### Camada Bronze (Customers)
+      **Propósito:** Tipagem e limpeza estrutural mínima do JSON bruto do landing zone.
+      **Formato:** Delta (via plugin `delta_rw`).

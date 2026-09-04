@@ -1,7 +1,7 @@
 {
   "expectations": [
     {
-      "id": "50c4738d-2f2c-4d16-a981-631192924dbc",
+      "id": "d17af6c3-ff64-48f4-98cc-265ec2954c5f",
       "kwargs": {
         "column": "email",
         "regex": "[^@]+@[^@]+\\.[^@]+"

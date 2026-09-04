@@ -1,0 +1,16 @@
+version: 2
+
+sources:
+  - name: landing
+    description: "Raw, unvalidated files dropped by the ingestion pipeline. Not part of the Delta lakehouse — the true external boundary."
+    tables:
+      - name: sales_landing
+        description: "Raw sales CSV as received from the (simulated) ERP export."
+        meta:
+          plugin: landing_read
+          path_template: "s3://landing-zone/sales_erp/dt={execution_date}/sales.csv"
+      - name: customers_landing
+        description: "Raw customers JSON as received from the (simulated) CRM export."
+        meta:
+          plugin: landing_read
+          path_template: "s3://landing-zone/customers_crm/dt={execution_date}/customers.json"

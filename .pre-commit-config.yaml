@@ -35,6 +35,10 @@ repos:
 
       - id: sqlfluff-lint
         name: sqlfluff lint (dbt/duckdb)
-        entry: uv run sqlfluff lint --dialect duckdb
+        # PYTHONPATH=src: the dbt-duckdb templater opens a real connection to
+        # render/lint, which loads the profile's plugins (dbt_plugins.*, under
+        # src/) — those need src/ on sys.path here the same way Docker sets
+        # PYTHONPATH=/app/src for the dagster/dbt_docs containers.
+        entry: env PYTHONPATH=src uv run sqlfluff lint --dialect duckdb
         language: system
         files: \.sql$

@@ -12,7 +12,7 @@ def generate_clean_big_data(execution_date=None):
     """Generates clean sales and customer data and writes directly to MinIO."""
     # 1. Initialize Connection
     factory = ConnectionFactory()
-    conn = factory.get_duckdb_conn()
+    conn = factory.get_duckdb_conn(db_path=":memory:")
     factory.setup_s3_auth(conn)
 
     # Use provided execution_date or fallback to global/env

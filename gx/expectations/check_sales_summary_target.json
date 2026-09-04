@@ -1,0 +1,30 @@
+{
+  "expectations": [
+    {
+      "id": "b85cd584-c6cb-49a6-b749-551f83ee7d63",
+      "kwargs": {
+        "column": "avg_ticket",
+        "max_value": 100000.0,
+        "min_value": 0.0
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_between"
+    },
+    {
+      "id": "f68a951b-7621-442b-b261-86256f954d94",
+      "kwargs": {
+        "column": "total_revenue"
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    }
+  ],
+  "id": "96285ba8-8473-4aeb-8180-0adac91a5064",
+  "meta": {
+    "great_expectations_version": "1.22.0"
+  },
+  "name": "check_sales_summary_target",
+  "notes": null
+}

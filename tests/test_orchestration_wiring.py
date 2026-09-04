@@ -1,12 +1,10 @@
-"""Regression guard: orchestration.py must auto-discover the pipelines package.
+"""Regression guard: orchestration.py must auto-discover dbt models via the manifest.
 
-Dagster only registers assets it can actually find. orchestration.py relies on
-`load_assets_from_package_module(pipelines)` to scan every module under
-src/pipelines/ for Bronze/Silver assets — a new domain is picked up just by
-dropping a file there, with no manual import/registration step. We previously
-shipped a version that required (and forgot) an explicit per-module import,
-which silently dropped the Bronze/Silver assets from Dagster entirely. This
-test fails fast if the auto-discovery wiring regresses.
+Bronze/Silver/Gold all live as dbt models under dbt/models/ now (see
+src/orchestration.py's module docstring) — a new model is picked up automatically
+by dbt's own project scanning when `dbt run`/`dbt compile` regenerates the
+manifest, with no per-model Python registration step. This test fails fast if
+that wiring regresses back to requiring manual asset registration.
 """
 
 import ast
@@ -15,25 +13,22 @@ from pathlib import Path
 ORCHESTRATION_PATH = Path(__file__).parent.parent / "src" / "orchestration.py"
 
 
-def test_orchestration_auto_discovers_pipeline_package():
+def test_orchestration_wires_dbt_assets_from_manifest():
     tree = ast.parse(ORCHESTRATION_PATH.read_text(encoding="utf-8"))
 
-    imports_pipelines_package = any(
-        isinstance(node, ast.Import) and any(alias.name == "pipelines" for alias in node.names)
+    dbt_assets_decorated_functions = [
+        node
         for node in ast.walk(tree)
-    )
-    calls_package_loader = any(
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "load_assets_from_package_module"
-        for node in ast.walk(tree)
-    )
+        if isinstance(node, ast.FunctionDef)
+        and any(
+            (isinstance(dec, ast.Call) and getattr(dec.func, "id", None) == "dbt_assets")
+            or (isinstance(dec, ast.Name) and dec.id == "dbt_assets")
+            for dec in node.decorator_list
+        )
+    ]
 
-    assert imports_pipelines_package, (
-        "orchestration.py must `import pipelines` so load_assets_from_package_module() "
-        "can scan every module under src/pipelines/ for assets"
-    )
-    assert calls_package_loader, (
-        "orchestration.py must call load_assets_from_package_module(pipelines) — without "
-        "it, new files added to src/pipelines/ are silently never registered with Dagster"
+    assert dbt_assets_decorated_functions, (
+        "orchestration.py must have a @dbt_assets-decorated function pointed at the dbt "
+        "manifest.json — without it, models added under dbt/models/ are never registered "
+        "with Dagster"
     )

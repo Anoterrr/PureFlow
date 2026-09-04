@@ -1,7 +1,7 @@
 # PureFlow-Arch: Modern & Modular Data Lakehouse
 ### Data Engineering Capstone Project (TCC) - Medallion Architecture
 
-**PureFlow-Arch** is a high-performance, **metadata-driven** data engineering platform. It implements a full Medallion Architecture using a 100% open-source stack, featuring a custom **Factory Pattern** for pipeline generation, integrated Data Quality (GX), and a robust DataOps CI/CD lifecycle.
+**PureFlow-Arch** is a high-performance, **metadata-driven** data engineering platform. It implements a full Medallion Architecture as a real **lakehouse** — every curated layer (Bronze, Silver, Gold) is Delta Lake, not just files — using a 100% open-source stack, with dbt as the single transformation engine, integrated Data Quality (GX), and a robust DataOps CI/CD lifecycle.
 
 ---
 
@@ -9,26 +9,27 @@
 
 The project is built on **Clean Architecture** and **SOLID** principles, ensuring that infrastructure, execution logic, and business rules are strictly decoupled.
 
-### 1. Medallion Layers (S3-Native)
+### 1. Medallion Layers (S3-Native, Delta everywhere)
 Data evolves through progressive layers in **MinIO (S3)**:
-*   **Landing (Raw):** Source files (CSV/JSON) in their original format.
-*   **Bronze (Standardized):** Technical ingestion (Schema enforcement) using **DuckDB**.
-*   **Silver (Validated & Clean):** High-quality data after **Great Expectations** gates and SQL transformations.
-*   **Gold (Business Ready):** Aggregated datasets managed by **dbt**, ready for BI consumption.
+*   **Landing (Raw):** Source files (CSV/JSON) in their original format — the only layer that isn't Delta; it's the true external boundary, read by dbt via `meta.external_location` sources.
+*   **Bronze (Standardized):** Schema-enforced Delta tables, produced by dbt models.
+*   **Silver (Validated & Clean):** High-quality Delta tables after **Great Expectations** gates and SQL transformations, chained via `ref()`.
+*   **Gold (Business Ready):** Aggregated Delta tables managed by **dbt**, ready for BI consumption.
 
-### 2. The DataPipeline Factory (Innovation)
-Instead of hardcoding every step, the project uses a **Factory Pattern** (`DataPipelineFactory`). This abstraction allows developers to define complex pipelines in Python using a simple, declarative DSL:
-*   **Automatic Lineage:** Dependencies are inferred and mapped natively in **Dagster**.
-*   **Decoupled SQL:** Business logic is stored in pure `.sql` files, separate from the execution engine.
-*   **Dynamic Quality Gates:** Validation rules are injected into the pipeline at runtime.
-*   **Zero-touch registration:** `orchestration.py` auto-discovers every module under `src/pipelines/` (via Dagster's `load_assets_from_package_module`) and supplies a default execution date to every asset (via `ExecutionDateResource`) — adding a domain never requires editing `orchestration.py`.
+dbt-duckdb doesn't write Delta natively (its bundled `delta` plugin only reads), so every model routes through a small custom write plugin — `src/dbt_plugins/delta_write.py` — configured project-wide in `dbt/dbt_project.yml` (`+plugin: delta_rw`). Each model just declares its `delta_table_path`; the plugin converts dbt's staged output into a real Delta table via `delta-rs`.
+
+### 2. Quality Gates (Great Expectations)
+Every domain gets two circuit breakers around its dbt models, both defined in `src/orchestration.py` and reusing the same `validate_data()`/`quarantine_data()` helpers:
+*   **Pre-flight (source):** a plain Dagster asset (e.g. `sales_landing`) validates the raw landing file *before* the Bronze dbt model reads it — matches the corresponding dbt `source()` by name, so it's a real upstream dependency in the asset graph. Raises (and quarantines) on failure, blocking Bronze from ever reading bad input.
+*   **Post-write (target):** a Dagster `@asset_check` per model (`check_stg_sales_bronze_target`, `check_sales_silver_target`, ...) validates the model's output right after it's written, quarantining and failing the check (`blocking=True`) on failure.
 
 ### 3. Adding a New Pipeline
-To wire up a new domain (e.g. `products`), only two things are needed:
-1.  **SQL transforms** — `src/sql/products/stg_products_bronze.sql` (Landing→Bronze) and `products_silver.sql` (Bronze→Silver).
-2.  **Pipeline definition** — `src/pipelines/products.py`, calling `DataPipelineFactory.create_asset(...)` for Bronze and Silver (see `src/pipelines/sales.py` for the pattern: `source`/`target` paths+format, `sql_transform`, optional `source_expectations`/`target_expectations` for GX gates, `depends_on` for lineage).
+To wire up a new domain (e.g. `products`), only dbt files are needed — no Python registration step:
+1.  **A source** for the raw landing file, in a `sources.yml` under `dbt/models/`, using `meta.external_location` (see `dbt/models/landing/sources.yml`).
+2.  **Bronze/Silver models** — `.sql` files under `dbt/models/products/bronze/` and `.../silver/`, following the pattern in `dbt/models/sales/`: `{{ config(delta_table_path=..., location=...) }}` at the top, `{{ source(...) }}`/`{{ ref(...) }}` in the `FROM` clause.
+3.  *(Optional)* Quality gates — add a pre-flight asset and/or `@asset_check`s in `src/orchestration.py` following the existing `sales_landing`/`check_stg_sales_bronze_target` pattern.
 
-That's it — drop the file in `src/pipelines/` and it's picked up automatically; no changes to `orchestration.py`. (A Gold-layer dbt model is optional and separate: add a source with `meta.s3_path` to a `dbt/models/**/sources.yml` and a model `.sql` file — `dbt/macros/setup_sources.sql` registers any source with `meta.s3_path` automatically.)
+Dropping the model files in is enough for Dagster to pick them up — `pureflow_dbt_assets` (`src/orchestration.py`) discovers every model from the dbt manifest automatically, no per-domain Python wiring.
 
 ---
 
@@ -38,7 +39,7 @@ That's it — drop the file in `src/pipelines/` and it's picked up automatically
 *   **Storage:** [MinIO](https://min.io/) (High-performance S3-Compatible Storage)
 *   **Processing:** [DuckDB](https://duckdb.org/) (The "SQLite for Analytics" - Local-first OLAP)
 *   **Quality:** [Great Expectations](https://greatexpectations.io/) (Dynamic Data Validation)
-*   **Modeling:** [dbt](https://www.getdbt.com/) (Modular SQL transformations for the Gold Layer)
+*   **Modeling:** [dbt](https://www.getdbt.com/) (Modular SQL transformations for every medallion layer) + [delta-rs](https://github.com/delta-io/delta-rs) (Delta Lake writes via a custom dbt-duckdb plugin)
 *   **DataOps:** GitHub Actions + pre-commit (Automated Linting, Security, and Testing)
 *   **Code Quality:** [Ruff](https://docs.astral.sh/ruff/) (lint + format) and [Bandit](https://bandit.readthedocs.io/) (security), enforced via pre-commit hooks
 *   **Environment:** Docker & [uv](https://docs.astral.sh/uv/) (Python 3.12)
@@ -50,13 +51,12 @@ That's it — drop the file in `src/pipelines/` and it's picked up automatically
 ```text
 PureFlow-Arch/
 ├── .github/workflows/      # CI/CD DataOps Pipelines
-├── dbt/                    # dbt Project (Gold Layer Models)
+├── dbt/                    # dbt Project (Bronze/Silver/Gold models, all Delta)
 ├── src/
-│   ├── core/               # Shared Engine, Factory, Connection & Quality logic
-│   ├── pipelines/          # Declarative Pipeline Definitions (Sales, Customers)
-│   ├── sql/                # Pure SQL Transformation Logic (Separated from code)
+│   ├── core/               # Shared Engine (path templating/quarantine), Connection & Quality logic
+│   ├── dbt_plugins/        # Custom dbt-duckdb plugin: writes Delta via delta-rs
 │   ├── validation/         # Generic GX Validation Wrapper
-│   └── orchestration.py    # Dagster Entrypoint & UI Definitions
+│   └── orchestration.py    # Dagster Entrypoint, dbt asset wiring & quality-gate assets
 ├── tests/                  # Unit tests for core logic and generators
 └── pyproject.toml          # Centralized Project Metadata & Config
 ```

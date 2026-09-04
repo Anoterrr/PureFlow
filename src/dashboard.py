@@ -1,13 +1,12 @@
 """Simple Business Dashboard using Streamlit and DuckDB (Reading from Gold S3)."""
 
-import os
+import re
 
-import duckdb
 import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 
-from core.config import get_s3_connection_config
+from core.connection import ConnectionFactory
 
 # Only load .env if variables are not already set (prevents overriding Docker env with localhost)
 load_dotenv(override=False)
@@ -21,43 +20,55 @@ st.markdown("This dashboard reads directly from the **Gold Layer** (S3/MinIO) us
 # --- Database Setup ---
 @st.cache_resource
 def get_duckdb_conn():
-    """Initializes and returns a DuckDB connection configured for S3/MinIO access."""
-    conn = duckdb.connect(database=":memory:")
+    """Initializes and returns a DuckDB connection configured for S3/MinIO access.
 
-    # Configure S3/MinIO
-    s3_cfg = get_s3_connection_config()
-
-    conn.execute("INSTALL httpfs; LOAD httpfs;")
-    conn.execute(f"SET s3_endpoint = '{s3_cfg['s3_endpoint']}';")
-    conn.execute(f"SET s3_access_key_id = '{s3_cfg['s3_access_key_id']}';")
-    conn.execute(f"SET s3_secret_access_key = '{s3_cfg['s3_secret_access_key']}';")
-    conn.execute(f"SET s3_use_ssl = {s3_cfg['s3_use_ssl']};")
-    conn.execute(f"SET s3_url_style = '{s3_cfg['s3_url_style']}';")
-    conn.execute(f"SET s3_region = '{s3_cfg['s3_region']}';")
-
+    Reuses ConnectionFactory (core/connection.py) rather than hand-rolling S3
+    setup — its CREATE SECRET-based auth is what the delta extension actually
+    needs (plain SET s3_access_key_id/etc. isn't enough for delta_scan()).
+    """
+    factory = ConnectionFactory()
+    conn = factory.get_duckdb_conn(db_path=":memory:")
+    factory.setup_s3_auth(conn)
     return conn
 
 
 # --- Data Loading ---
-def load_gold_data():
-    """Loads gold sales summary data from S3 into a pandas DataFrame."""
-    conn = get_duckdb_conn()
-    # Path to your latest Gold aggregation
-    # Note: In a real scenario, we would use a dynamic date
-    base_date = os.getenv("EXECUTION_DATE", "2026-04-15")
-    gold_path = f"s3://gold/sales_summary/dt={base_date}/sales_summary.parquet"
+def get_latest_partition_date(conn, bucket: str, table: str) -> str | None:
+    """Finds the most recent dt=YYYY-MM-DD partition written for a Gold Delta table.
 
+    No date is guessed or hardcoded: whatever the Dagster pipeline last wrote
+    is what gets shown, regardless of when that run happened. Looks for the
+    Delta transaction log rather than a bare .parquet file since Gold is Delta.
+    """
+    files = conn.execute(
+        "SELECT file FROM glob(?)", [f"s3://{bucket}/{table}/dt=*/_delta_log/*.json"]
+    ).fetchall()
+    dates = {m.group(1) for (f,) in files if (m := re.search(r"dt=(\d{4}-\d{2}-\d{2})", f))}
+    return max(dates) if dates else None
+
+
+def load_gold_data():
+    """Loads the most recently written Gold sales summary Delta partition."""
+    conn = get_duckdb_conn()
+
+    latest_date = get_latest_partition_date(conn, "gold", "sales_summary")
+    if latest_date is None:
+        return pd.DataFrame(), None
+
+    gold_path = f"s3://gold/sales_summary/dt={latest_date}/"
     try:
-        return conn.execute("SELECT * FROM read_parquet(?)", [gold_path]).df()
+        return conn.execute("SELECT * FROM delta_scan(?)", [gold_path]).df(), latest_date
     except Exception as e:
         st.error(f"Error loading gold data: {e}")
-        return pd.DataFrame()
+        return pd.DataFrame(), latest_date
 
 
 # --- Visualization ---
-df = load_gold_data()
+df, latest_run_date = load_gold_data()
 
 if not df.empty:
+    st.caption(f"📅 Showing latest available run: **{latest_run_date}**")
+
     # 1. Key Metrics
     col1, col2, col3 = st.columns(3)
     with col1:

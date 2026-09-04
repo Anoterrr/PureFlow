@@ -23,11 +23,47 @@ fluent_datasources:
           batch_check_stg_customers_bronze_target:
             id: 6b3a9cda-014a-4344-8f4d-63f615976977
             partitioner:
+  ds_check_stg_sales_bronze_source_95118e78:
+    type: pandas
+    id: b3028812-fd67-4d51-85a3-cfd27145091d
+    assets:
+      data_check_stg_sales_bronze_source:
+        type: dataframe
+        id: 42fad3bc-c331-4586-96b9-39fef4305329
+        batch_metadata: {}
+        batch_definitions:
+          batch_check_stg_sales_bronze_source:
+            id: f286e076-3049-4815-89cb-7aae0b750c79
+            partitioner:
+  ds_check_sales_silver_target_f7051c65:
+    type: pandas
+    id: 14c0672d-7ec0-4fa6-8d4b-6f5c0c11d896
+    assets:
+      data_check_sales_silver_target:
+        type: dataframe
+        id: 9ceb1681-8b91-4f5a-9a3d-99547e2b20f6
+        batch_metadata: {}
+        batch_definitions:
+          batch_check_sales_silver_target:
+            id: d5084270-53bc-41a9-a556-6f57bc94d84f
+            partitioner:
+  ds_check_customers_landing_source_3df7ae58:
+    type: pandas
+    id: d4aa81f7-101e-4ffa-be00-fae9519c251d
+    assets:
+      data_check_customers_landing_source:
+        type: dataframe
+        id: 75c0211c-c296-4a52-8b76-f981318ad24b
+        batch_metadata: {}
+        batch_definitions:
+          batch_check_customers_landing_source:
+            id: 9595e5d0-95be-4078-a0f0-c92fd4013a20
+            partitioner:
 config_version: 3.0
 expectations_store_name: expectations_store
 validation_results_store_name: validation_results_store
 checkpoint_store_name: checkpoint_store
-plugins_directory: plugins
+plugins_directory: /app/gx/plugins
 stores:
   expectations_store:
     class_name: ExpectationsStore
@@ -59,6 +95,6 @@ data_docs_sites:
       base_directory: uncommitted/data_docs/local_site
     site_index_builder:
       class_name: DefaultSiteIndexBuilder
-config_variables_file_path: uncommitted/config_variables.yml
+config_variables_file_path: /app/gx/uncommitted/config_variables.yml
 analytics_enabled:
 data_context_id: cb18d2b6-ff70-402b-a6c5-4ad1ee031c46

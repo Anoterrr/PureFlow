@@ -1,0 +1,8 @@
+version: 2
+
+models:
+  - name: customers_silver
+    description: |
+      ### Camada Silver (Customers)
+      **Propósito:** Dado validado, com UF normalizada, pronto para consumo analítico.
+      **Formato:** Delta (via plugin `delta_rw`).

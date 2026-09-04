@@ -37,4 +37,5 @@ def test_get_s3_paths():
     """Ensures S3 paths are correctly formatted."""
     paths = get_s3_paths("2024-01-01")
     assert paths["sales_landing"] == "s3://landing-zone/sales_erp/dt=2024-01-01/sales.csv"
-    assert paths["sales_silver"] == "s3://silver/sales_erp/dt=2024-01-01/"
+    assert paths["sales_bronze"] == "s3://bronze/sales_erp/dt=2024-01-01/stg_sales_bronze"
+    assert paths["sales_silver"] == "s3://silver/sales/dt=2024-01-01"

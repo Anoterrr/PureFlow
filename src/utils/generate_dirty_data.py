@@ -11,7 +11,7 @@ from utils.generators import generate_base_customers, generate_base_sales
 def generate_dirty_big_data(execution_date=None):
     """Generates dirty sales and customer data with intentional errors."""
     factory = ConnectionFactory()
-    conn = factory.get_duckdb_conn()
+    conn = factory.get_duckdb_conn(db_path=":memory:")
     factory.setup_s3_auth(conn)
 
     base_date = execution_date or BASE_DATE

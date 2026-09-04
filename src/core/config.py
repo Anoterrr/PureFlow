@@ -1,11 +1,14 @@
 """Shared configuration for data generation and ingestion."""
 
 import os
+from datetime import datetime
 
 from core.logger import logger
 
-# Base date for data generation and processing
-BASE_DATE = os.getenv("BASE_DATE", "2026-04-19")
+# Base date for data generation and processing. No fixed date is baked in:
+# falls back to today (at process start) unless BASE_DATE is set explicitly,
+# e.g. to reproduce a specific past run.
+BASE_DATE = os.getenv("BASE_DATE") or datetime.now().strftime("%Y-%m-%d")
 
 # S3 / MinIO Configuration
 S3_BUCKET_LANDING = os.getenv("S3_BUCKET_LANDING", "landing-zone")
@@ -97,6 +100,23 @@ def get_s3_connection_config():
     }
 
 
+def get_delta_storage_options() -> dict[str, str]:
+    """Storage options for deltalake (delta-rs) reads/writes against MinIO/S3."""
+    s3_cfg = get_s3_connection_config()
+    endpoint = s3_cfg["s3_endpoint"]
+    if not endpoint.startswith("http"):
+        endpoint = f"http://{endpoint}"
+
+    return {
+        "endpoint_url": endpoint,
+        "access_key_id": s3_cfg["s3_access_key_id"],
+        "secret_access_key": s3_cfg["s3_secret_access_key"],
+        "region": s3_cfg["s3_region"],
+        "allow_http": "true",
+        "s3_allow_unsafe_rename": "true",  # MinIO/S3 non-atomic renames
+    }
+
+
 def get_s3_paths(base_date: str):
     """Returns the S3 URI paths for ingestion and validation layers."""
     return {
@@ -105,16 +125,16 @@ def get_s3_paths(base_date: str):
         "customers_landing": (
             f"s3://{S3_BUCKET_LANDING}/customers_crm/dt={base_date}/customers.json"
         ),
-        # Bronze (Raw Parquet)
-        "sales_bronze": f"s3://{S3_BUCKET_BRONZE}/sales_erp/dt={base_date}/stg_sales_bronze.parquet",
+        # Bronze (Delta)
+        "sales_bronze": f"s3://{S3_BUCKET_BRONZE}/sales_erp/dt={base_date}/stg_sales_bronze",
         "customers_bronze": (
-            f"s3://{S3_BUCKET_BRONZE}/customers_crm/dt={base_date}/stg_customers_bronze.parquet"
+            f"s3://{S3_BUCKET_BRONZE}/customers_crm/dt={base_date}/stg_customers_bronze"
         ),
-        # Silver (Validated Delta/Parquet)
-        "sales_silver": f"s3://{S3_BUCKET_SILVER}/sales_erp/dt={base_date}/",
-        "customers_silver": f"s3://{S3_BUCKET_SILVER}/customers_crm/dt={base_date}/",
-        # Gold (Business Insights/Aggregations)
-        "sales_summary": f"s3://{S3_BUCKET_GOLD}/sales_summary/dt={base_date}/",
+        # Silver (Delta)
+        "sales_silver": f"s3://{S3_BUCKET_SILVER}/sales/dt={base_date}",
+        "customers_silver": f"s3://{S3_BUCKET_SILVER}/customers/dt={base_date}",
+        # Gold (Delta)
+        "sales_summary": f"s3://{S3_BUCKET_GOLD}/sales_summary/dt={base_date}",
         # Quarantine (Failed validation)
         "sales_quarantine": (f"s3://{S3_BUCKET_QUARANTINE}/sales_erp/dt={base_date}/sales.parquet"),
         "customers_quarantine": (

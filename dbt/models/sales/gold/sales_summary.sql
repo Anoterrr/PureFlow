@@ -1,15 +1,14 @@
 {{ config(
-    materialized='external',
-    location="s3://gold/sales_summary/dt=" ~ var('execution_date') ~ "/sales_summary.parquet",
-    format='parquet'
+    delta_table_path="s3://gold/sales_summary/dt=" ~ var('execution_date'),
+    location="s3://gold/_stage/sales_summary/dt=" ~ var('execution_date') ~ ".parquet"
 ) }}
 
 WITH silver_sales AS (
-    SELECT * FROM {{ source('silver', 'sales_silver') }}
+    SELECT * FROM {{ ref('sales_silver') }}
 ),
 
 silver_customers AS (
-    SELECT * FROM {{ source('silver', 'customers_silver') }}
+    SELECT * FROM {{ ref('customers_silver') }}
 ),
 
 enriched_sales AS (

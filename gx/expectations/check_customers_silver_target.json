@@ -1,7 +1,7 @@
 {
   "expectations": [
     {
-      "id": "98fef0f3-d617-4b20-a39b-f0744a720617",
+      "id": "2091db84-6389-4cab-8292-1a9c14ef23f0",
       "kwargs": {
         "column": "email"
       },

@@ -54,7 +54,6 @@ services:
       - STORAGE_USER=${STORAGE_USER:-admin}
       - STORAGE_PASSWORD=${STORAGE_PASSWORD:-strongpassword123}
       - S3_ENDPOINT=http://minio:9000
-      - DUCKDB_PATH=/app/data/pureflow_lakehouse.db
       - AWS_ACCESS_KEY_ID=${STORAGE_USER:-admin}
       - AWS_SECRET_ACCESS_KEY=${STORAGE_PASSWORD:-strongpassword123}
       - AWS_ENDPOINT_URL=http://minio:9000
@@ -73,7 +72,6 @@ services:
     # COMPILATION GATE: Ensures dbt manifest is fresh before starting Dagster
     command: >
       bash -c "echo '🚀 Initializing PureFlow Environment...' &&
-               mkdir -p /app/data &&
                cd dbt &&
                dbt compile --profiles-dir . --profile pureflow &&
                cd /app &&
@@ -128,7 +126,6 @@ services:
       - STORAGE_USER=${STORAGE_USER:-admin}
       - STORAGE_PASSWORD=${STORAGE_PASSWORD:-strongpassword123}
       - S3_ENDPOINT=http://minio:9000
-      - DUCKDB_PATH=/app/data/pureflow_lakehouse.db
       - DBT_READ_ONLY=true
       - PYTHONPATH=/app/src
       - AWS_ACCESS_KEY_ID=${STORAGE_USER:-admin}
