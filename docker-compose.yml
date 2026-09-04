@@ -1,5 +1,6 @@
+name: pureflow
+
 services:
-  # --- MINIO: Our "External" S3 Storage ---
   minio:
     image: quay.io/minio/minio:latest
     container_name: pureflow_storage
@@ -20,7 +21,6 @@ services:
     networks:
       - pureflow_net
 
-  # --- MINIO INIT: Creates buckets automatically ---
   minio_init:
     image: minio/mc
     container_name: pureflow_minio_init
@@ -44,7 +44,6 @@ services:
     networks:
       - pureflow_net
 
-  # --- DAGSTER: Modern Data Orchestrator ---
   dagster:
     build: .
     container_name: pureflow_dagster
@@ -91,7 +90,6 @@ services:
     networks:
       - pureflow_net
 
-  # --- DASHBOARD: Visual Insights for BI ---
   dashboard:
     build: .
     container_name: pureflow_dashboard
@@ -118,7 +116,6 @@ services:
     networks:
       - pureflow_net
 
-  # --- DBT DOCS: Lineage and Documentation ---
   dbt_docs:
     build: .
     container_name: pureflow_dbt_docs

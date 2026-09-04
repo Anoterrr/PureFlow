@@ -1,15 +1,9 @@
-"""dbt-duckdb write plugin: materializes 'external' models as Delta Lake tables.
+"""dbt-duckdb write plugin: materializes 'external' models as Delta tables.
 
-dbt-duckdb ships a read-only 'delta' plugin (load() only, no store()) — writing
-Delta isn't natively supported. This plugin hooks into the external
-materialization's store_relation() call (see dbt-duckdb's external.sql: after
-writing the model's result to `location` in a native format, it hands off to
-the configured plugin's store()) to convert that staged file into a real Delta
-table via delta-rs, the same library core/engine.py already uses.
-
-Reads the staged output back via DuckDB (not pandas+s3fs, which isn't a
-dependency here) since DuckDB's S3/MinIO wiring is already established
-throughout this codebase.
+dbt-duckdb's bundled 'delta' plugin only reads (no store()) — Delta writes
+aren't native. This hooks into the external materialization's store_relation()
+call to convert the staged output into a real Delta table via delta-rs,
+reading it back through DuckDB rather than pandas+s3fs (not a dependency here).
 """
 
 from dbt.adapters.duckdb.plugins import BasePlugin
@@ -44,9 +38,8 @@ class Plugin(BasePlugin):
             delta_table_path,
             table,
             mode=mode,
-            # A model's SQL can legitimately change its output schema between
-            # runs (dev iteration, new columns) — a full overwrite should just
-            # take the new schema rather than hard-failing on mismatch.
+            # A full overwrite should take the model's current schema rather
+            # than hard-failing if a column was added/removed since last run.
             schema_mode="overwrite" if mode == "overwrite" else None,
             storage_options=get_delta_storage_options(),
         )

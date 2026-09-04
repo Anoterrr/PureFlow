@@ -1,11 +1,8 @@
-"""Modern Orchestration for PureFlow-Arch using Dagster (Asset-Based).
+"""Dagster orchestration for PureFlow.
 
-Bronze/Silver/Gold transformations all live as dbt models (dbt/models/) — this
-module wires them into Dagster, plus the Great Expectations quality gates that
-wrap them: a pre-flight check on raw landing files (source circuit breaker,
-mirrors the old inline factory.py behavior) and a post-write @asset_check per
-model (target circuit breaker), both reusing PureFlowEngine.quarantine_data()
-and validation.gx_validator.validate_data() unchanged.
+Bronze/Silver/Gold live as dbt models (dbt/models/) — this module wires them
+into Dagster, plus the Great Expectations quality gates around them: a
+pre-flight check on raw landing files and a post-write @asset_check per model.
 """
 
 import os
@@ -27,19 +24,15 @@ from dagster_dbt import DagsterDbtTranslator, DbtCliResource, dbt_assets
 from core.engine import PureFlowEngine
 from core.quality import GreatExpectationsResource, reinforce_global_s3_config
 from core.resources import ExecutionDateResource
-
-# Import data generators and corruptors
 from utils.generate_clean_data import generate_clean_big_data
 from utils.generate_corrupt_data import corrupt_bronze_layer, corrupt_landing_zone
 from utils.generate_dirty_data import generate_dirty_big_data
 from validation.gx_validator import validate_data
 
-# --- 1. dbt Configuration with Lineage Mapping ---
 DBT_PROJECT_DIR = Path(__file__).joinpath("..", "..", "dbt").resolve()
 dbt_resource = DbtCliResource(project_dir=os.fspath(DBT_PROJECT_DIR))
 
 
-# This translator connects dbt sources/models to Dagster asset keys and groups
 class PureFlowDbtTranslator(DagsterDbtTranslator):
     """Custom translator for PureFlow dbt assets to map sources and groups."""
 
@@ -83,10 +76,6 @@ def pureflow_dbt_assets(
         context=context,
     ).stream()
 
-
-# --- 2. Quality Gates (Great Expectations) ---
-# Expectations moved here from the retired src/pipelines/{sales,customers}.py —
-# unchanged in content, just relocated next to where they're now consumed.
 
 SALES_LANDING_EXPECTATIONS = [
     {
@@ -297,9 +286,6 @@ def check_sales_summary(
     )
 
 
-# --- 3. Data State Management Assets (Separated from main pipeline) ---
-
-
 @asset(group_name="data_generators", compute_kind="python")
 def generate_clean_data(context, execution_date_resource: ExecutionDateResource):
     """Generates CLEAN synthetic data in the Landing Zone."""
@@ -332,21 +318,17 @@ def inject_corrupt_bronze(context, execution_date_resource: ExecutionDateResourc
     context.log.warning(f"🧨 Bronze Layer data corrupted for {execution_date}.")
 
 
-# --- 4. Jobs & Definitions ---
-
-# Main Transformation Pipeline (Excludes generators and corruption tools)
 pureflow_pipeline_job = define_asset_job(
     name="pureflow_pipeline_job",
     selection=AssetSelection.all() - AssetSelection.groups("data_generators", "test_quality"),
 )
 
-# Job for generating synthetic data
 data_generation_job = define_asset_job(
     name="data_generation_job",
     selection=AssetSelection.groups("data_generators"),
 )
 
-# Specific job to test Quality Gates by corrupting and then running the pipeline
+# Corrupts landing/bronze, then runs the same pipeline so the quality gates catch it
 quality_test_job = define_asset_job(
     name="quality_test_job",
     selection=(
@@ -355,16 +337,11 @@ quality_test_job = define_asset_job(
     ),
 )
 
-# Set GLOBAL-scope DuckDB S3 defaults once, explicitly, before any asset materializes
-# (previously ran as a hidden side effect of importing core.quality — see that module).
 reinforce_global_s3_config()
 
-# All assets are defined directly in this module now — bronze/silver/gold live as
-# dbt models (dbt/models/), discovered via the manifest passed to @dbt_assets above.
-# load_assets_from_current_module() only picks up AssetsDefinition/SourceAsset —
-# @asset_check produces a distinct AssetChecksDefinition, so those are collected
-# separately and passed to Definitions(asset_checks=...) below.
 all_assets = list(load_assets_from_current_module())
+# load_assets_from_current_module() doesn't pick up @asset_check (a distinct
+# AssetChecksDefinition type), so they're collected separately below.
 all_asset_checks = [
     check_stg_sales_bronze_target,
     check_stg_customers_bronze_target,
@@ -373,7 +350,6 @@ all_asset_checks = [
     check_sales_summary,
 ]
 
-# Resource for Great Expectations
 gx_resource = GreatExpectationsResource(ge_root_dir=os.fspath(Path(__file__).parent.parent / "gx"))
 
 defs = Definitions(

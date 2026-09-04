@@ -27,7 +27,6 @@ class PureFlowEngine:
             for key, value in context.items():
                 rendered = rendered.replace(f"{{{{ {key} }}}}", str(value))
 
-            # Handle automatic extensions based on format
             fmt = context.get("format", "").lower()
             ext = ""
             if fmt == "parquet":
@@ -69,7 +68,6 @@ class PureFlowEngine:
                 target_quarantine_path,
             )
 
-            # Detect format for reading during quarantine
             fmt = source_format.lower()
             if fmt == "delta":
                 read_func = "delta_scan"
@@ -78,13 +76,10 @@ class PureFlowEngine:
             else:
                 read_func = "read_parquet"
 
-            # Use DuckDB's internal S3 copy capabilities
-            # This is a 'move' simulated by COPY
-            # read_func comes from the fixed whitelist above, not external input.
-            # Both paths are inlined (not bound as `?`) — a COPY with a
-            # placeholder both inside the SELECT and in the TO clause silently
-            # mis-binds on this DuckDB version; source_path/target_quarantine_path
-            # are built internally, never raw user input, so inlining is safe.
+            # read_func is from the fixed whitelist above, and both paths are
+            # inlined rather than bound as `?` — a COPY with a placeholder both
+            # inside the SELECT and in the TO clause silently mis-binds on this
+            # DuckDB version. Neither path is ever raw user input.
             conn.execute(
                 f"COPY (SELECT * FROM {read_func}('{source_path}')) "  # nosec B608
                 f"TO '{target_quarantine_path}' (FORMAT 'PARQUET')"

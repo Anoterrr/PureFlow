@@ -1632,7 +1632,7 @@ wheels = [
 ]
 
 [[package]]
-name = "pureflow-arch"
+name = "pureflow"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

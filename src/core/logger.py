@@ -1,4 +1,4 @@
-"""Shared logger configuration for the PureFlow-Arch project."""
+"""Shared logger configuration for the PureFlow project."""
 
 import logging
 import sys

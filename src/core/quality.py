@@ -12,7 +12,6 @@ from core.config import get_s3_connection_config
 from core.logger import logger
 
 
-# --- Custom Great Expectations Resource ---
 class GreatExpectationsResource(ConfigurableResource):
     """Custom resource to manage Great Expectations context."""
 
@@ -23,7 +22,6 @@ class GreatExpectationsResource(ConfigurableResource):
         return get_gx_context()
 
 
-# --- Process-level S3 Reinforcement ---
 # Sets GLOBAL-scope DuckDB S3 defaults once per process, as a fallback for any
 # connection that isn't explicitly configured via ConnectionFactory.setup_s3_auth().
 # Call this once, explicitly, at process startup (see orchestration.py) — it must
@@ -38,8 +36,6 @@ def reinforce_global_s3_config():
         )
         with duckdb.connect() as global_conn:
             global_conn.execute("INSTALL httpfs; LOAD httpfs;")
-
-            # Global-level reinforcement
             global_conn.execute("SET GLOBAL s3_url_style = 'path';")
             global_conn.execute("SET GLOBAL s3_use_ssl = false;")
             global_conn.execute(f"SET GLOBAL s3_endpoint = '{s3_cfg['s3_endpoint']}';")
@@ -68,8 +64,6 @@ def get_gx_context():
     """
     context_root_dir = os.path.abspath("gx")
     config_path = os.path.join(context_root_dir, "great_expectations.yml")
-
-    # Ensure necessary directories exist
     os.makedirs(os.path.join(context_root_dir, "uncommitted/data_docs"), exist_ok=True)
 
     with open(config_path, encoding="utf-8") as f:

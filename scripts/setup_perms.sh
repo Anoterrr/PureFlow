@@ -9,7 +9,7 @@ set -e
 PROJECT_ROOT=$(pwd)
 ANALYST_UID=1000
 
-echo "🛡️ Fixing permissions for PureFlow-Arch (UID $ANALYST_UID)..."
+echo "🛡️ Fixing permissions for PureFlow (UID $ANALYST_UID)..."
 
 # Ensure data directories exist
 mkdir -p "$PROJECT_ROOT/data/minio_data"

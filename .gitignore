@@ -71,6 +71,9 @@ storage/
 # Ignore uncommitted checkpoints and generated data docs
 gx/uncommitted/
 gx/logs/
+# validation_definitions are created and deleted per-run by gx_validator.py —
+# never meant to persist between runs, let alone be committed.
+gx/validation_definitions/
 
 # 6. Docker
 .dockerignore

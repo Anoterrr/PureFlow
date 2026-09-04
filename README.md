@@ -1,7 +1,7 @@
-# PureFlow-Arch: Modern & Modular Data Lakehouse
+# PureFlow: Modern & Modular Data Lakehouse
 ### Data Engineering Capstone Project (TCC) - Medallion Architecture
 
-**PureFlow-Arch** is a high-performance, **metadata-driven** data engineering platform. It implements a full Medallion Architecture as a real **lakehouse** — every curated layer (Bronze, Silver, Gold) is Delta Lake, not just files — using a 100% open-source stack, with dbt as the single transformation engine, integrated Data Quality (GX), and a robust DataOps CI/CD lifecycle.
+**PureFlow** is a high-performance, **metadata-driven** data engineering platform. It implements a full Medallion Architecture as a real **lakehouse** — every curated layer (Bronze, Silver, Gold) is Delta Lake, not just files — using a 100% open-source stack, with dbt as the single transformation engine, integrated Data Quality (GX), and a robust DataOps CI/CD lifecycle.
 
 ---
 
@@ -49,7 +49,7 @@ Dropping the model files in is enough for Dagster to pick them up — `pureflow_
 ## 📂 Project Structure
 
 ```text
-PureFlow-Arch/
+PureFlow/
 ├── .github/workflows/      # CI/CD DataOps Pipelines
 ├── dbt/                    # dbt Project (Bronze/Silver/Gold models, all Delta)
 ├── src/

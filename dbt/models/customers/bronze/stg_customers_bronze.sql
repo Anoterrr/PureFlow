@@ -3,7 +3,6 @@
     location="s3://bronze/_stage/stg_customers_bronze/dt=" ~ var('execution_date') ~ ".parquet"
 ) }}
 
--- Bronze transformation for Customers (Raw to Bronze)
 SELECT
     id AS customer_id,
     name,

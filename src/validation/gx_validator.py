@@ -25,25 +25,22 @@ def validate_data(
     """
     factory = ConnectionFactory()
 
-    # Use provided context or get/create a new one
     if context is None:
         context = get_gx_context()
 
     logger.info("🛡️ [Validator] Validating data at %s...", path)
 
-    # 1. Read data via DuckDB into Pandas
-    # This leverages DuckDB's S3/Parquet/Delta speed but uses GX's stable Pandas engine
+    # Reads via DuckDB (fast S3/Parquet/Delta access) then hands off to GX's
+    # Pandas engine, which is the stable one.
     import duckdb
 
     success = True
     error_msg = None
 
-    # Default report URL (index page)
     web_report_url = "http://localhost:8082/index.html"
     base_docs_path = os.path.abspath("gx/uncommitted/data_docs/local_site")
 
     try:
-        # Read function for DuckDB
         fmt = data_format.lower()
         if fmt == "delta":
             read_func = "delta_scan"
@@ -54,7 +51,6 @@ def validate_data(
                 else ("read_parquet" if fmt == "parquet" else "read_json_auto")
             )
 
-        # Use an in-memory DuckDB to fetch the data
         with duckdb.connect() as conn:
             factory.setup_s3_auth(conn)
             logger.info("⚡ [Validator] Fetching data via DuckDB...")
@@ -64,8 +60,7 @@ def validate_data(
         if df.empty:
             logger.warning("⚠️ [Validator] Data is empty at %s", path)
 
-        # 2. Setup GX Pandas Datasource
-        # We use a unique datasource name per run to avoid any persistence conflicts in the YAML/Context
+        # Unique datasource name per run to avoid persistence conflicts in the context
         import uuid
 
         run_id = str(uuid.uuid4())[:8]
@@ -73,10 +68,9 @@ def validate_data(
 
         datasource = context.data_sources.add_pandas(name=datasource_name)
 
-        # 3. Setup Suite and Add Expectations
         suite = get_or_create_suite(context, suite_name)
 
-        # Clear existing expectations to ensure only the ones defined in the asset are used
+        # Wipe and rebuild so only the expectations passed in for this call apply
         for expectation in list(suite.expectations):
             suite.delete_expectation(expectation)
 
@@ -90,13 +84,11 @@ def validate_data(
             except (AttributeError, TypeError) as e:
                 logger.warning("⚠️ [Validator] Could not add expectation %s: %s", exp_name, str(e))
 
-        # 4. Setup Data Asset
         asset_name = f"data_{suite_name}"
         asset = datasource.add_dataframe_asset(name=asset_name)
         batch_def = asset.add_batch_definition_whole_dataframe(f"batch_{suite_name}")
         batch_parameters = {"dataframe": df}
 
-        # 5. Run Validation
         val_name = f"val_{suite_name}_{run_id}"
         try:
             with contextlib.suppress(Exception):
@@ -115,7 +107,6 @@ def validate_data(
             logger.error("❌ [Validator] Validation FAILED.")
             error_msg = "Data quality validation failed (check GX report for details)."
 
-        # Ensure Data Docs are built
         context.build_data_docs()
 
     except Exception as e:
@@ -123,15 +114,12 @@ def validate_data(
         success = False
         error_msg = f"Technical validation failure: {str(e)}"
     finally:
-        # Cleanup ephemeral datasource and val_def to keep context lean
+        # Keep the context lean between calls
         with contextlib.suppress(Exception):
             context.validation_definitions.delete(val_name)
             context.data_sources.delete(datasource_name)
 
-    # Dynamic path to the generated Data Docs for this specific suite
     report_path = os.path.join(base_docs_path, "validations", suite_name)
-
-    # Try to find the most recent HTML report
     latest_report_file = os.path.join(base_docs_path, "index.html")
     try:
         if os.path.exists(report_path):
@@ -146,7 +134,6 @@ def validate_data(
     except Exception as e:
         logger.warning("Could not find latest report: %s", str(e))
 
-    # Convert local file path to HTTP URL
     if os.path.exists(latest_report_file):
         relative_path = os.path.relpath(latest_report_file, base_docs_path)
         web_report_url = f"http://localhost:8082/{relative_path}"

@@ -3,12 +3,10 @@
 # NOTE: not normally needed — the `minio_init` service in docker-compose.yml
 # already creates these buckets automatically on `docker-compose up`.
 
-# Load environment variables from .env if it exists
 if [ -f .env ]; then
     export $(grep -v '^#' .env | xargs)
 fi
 
-# Configuration (using defaults from .env or connection.py)
 STORAGE_USER=${STORAGE_USER:-admin}
 STORAGE_PASSWORD=${STORAGE_PASSWORD:-strongpassword123}
 # host.docker.internal lets the mc container reach MinIO's published port on
@@ -16,7 +14,6 @@ STORAGE_PASSWORD=${STORAGE_PASSWORD:-strongpassword123}
 # the --add-host flag below (Docker 20.10+).
 S3_ENDPOINT=${S3_ENDPOINT:-http://host.docker.internal:9000}
 
-# Buckets to create
 BUCKETS=(
     "${S3_BUCKET_LANDING:-landing-zone}"
     "${S3_BUCKET_BRONZE:-bronze}"
@@ -32,10 +29,8 @@ echo "🌊 Initializing MinIO buckets at $S3_ENDPOINT..."
 # no-op on Docker Desktop (Mac/Windows), where that hostname already works.
 MC_COMMAND="docker run --rm --add-host=host.docker.internal:host-gateway minio/mc"
 
-# 1. Configure MC alias
 $MC_COMMAND alias set pureflow "$S3_ENDPOINT" "$STORAGE_USER" "$STORAGE_PASSWORD"
 
-# 2. Create Buckets
 for BUCKET in "${BUCKETS[@]}"; do
     echo "🏗️ Checking bucket: $BUCKET"
     if ! $MC_COMMAND ls "pureflow/$BUCKET" > /dev/null 2>&1; then

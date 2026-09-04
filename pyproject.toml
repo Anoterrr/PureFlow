@@ -1,5 +1,5 @@
 [project]
-name = "pureflow-arch"
+name = "pureflow"
 version = "0.1.0"
 description = "TCC Engenharia de Dados - PureFlow"
 authors = [

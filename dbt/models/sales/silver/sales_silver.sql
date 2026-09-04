@@ -3,7 +3,6 @@
     location="s3://silver/_stage/sales_silver/dt=" ~ var('execution_date') ~ ".parquet"
 ) }}
 
--- Transformation from Bronze to Silver for Sales
 SELECT
     *,
     (price * 0.9) AS price_with_discount,

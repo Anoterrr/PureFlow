@@ -1,4 +1,4 @@
-"""Shared Dagster resources for PureFlow-Arch."""
+"""Shared Dagster resources for PureFlow."""
 
 from datetime import datetime
 

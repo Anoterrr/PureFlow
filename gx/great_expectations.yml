@@ -59,6 +59,18 @@ fluent_datasources:
           batch_check_customers_landing_source:
             id: 9595e5d0-95be-4078-a0f0-c92fd4013a20
             partitioner:
+  ds_check_stg_customers_bronze_target_98d7d29b:
+    type: pandas
+    id: 1d27dad5-7565-453e-95af-ac2e397becfd
+    assets:
+      data_check_stg_customers_bronze_target:
+        type: dataframe
+        id: be5dd966-77d1-4138-bef4-f04a97fc7fd2
+        batch_metadata: {}
+        batch_definitions:
+          batch_check_stg_customers_bronze_target:
+            id: e739786e-fcf2-46ca-bc3e-e8ba493bda3e
+            partitioner:
 config_version: 3.0
 expectations_store_name: expectations_store
 validation_results_store_name: validation_results_store

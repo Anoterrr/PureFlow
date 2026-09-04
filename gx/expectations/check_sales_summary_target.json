@@ -1,7 +1,7 @@
 {
   "expectations": [
     {
-      "id": "b85cd584-c6cb-49a6-b749-551f83ee7d63",
+      "id": "5739b099-a60c-408d-8dec-a69d081e05c9",
       "kwargs": {
         "column": "avg_ticket",
         "max_value": 100000.0,
@@ -12,7 +12,7 @@
       "type": "expect_column_values_to_be_between"
     },
     {
-      "id": "f68a951b-7621-442b-b261-86256f954d94",
+      "id": "b883081c-6237-42b0-82ce-71ef8b5412dd",
       "kwargs": {
         "column": "total_revenue"
       },

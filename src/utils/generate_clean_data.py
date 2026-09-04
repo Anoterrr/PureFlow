@@ -10,16 +10,13 @@ from utils.generators import generate_base_customers, generate_base_sales
 
 def generate_clean_big_data(execution_date=None):
     """Generates clean sales and customer data and writes directly to MinIO."""
-    # 1. Initialize Connection
     factory = ConnectionFactory()
     conn = factory.get_duckdb_conn(db_path=":memory:")
     factory.setup_s3_auth(conn)
 
-    # Use provided execution_date or fallback to global/env
     base_date = execution_date or BASE_DATE
     s3_paths = get_s3_paths(base_date=base_date)
 
-    # 2. Generate clean customers_crm (Big Data Scale)
     n_customers = 100_000
     logger.info("🚀 Generating %d customers (CLEAN) for date %s...", n_customers, base_date)
     customers = generate_base_customers(n_customers)
@@ -37,7 +34,6 @@ def generate_clean_big_data(execution_date=None):
         f"COPY df_customers TO '{s3_paths['customers_landing']}' (FORMAT 'JSON', ARRAY TRUE)"
     )
 
-    # 3. Generate clean sales_erp (Big Data Scale)
     n_sales = 1_000_000
     logger.info("🚀 Generating %d sales records (CLEAN)...", n_sales)
     sales = generate_base_sales(

@@ -24,10 +24,8 @@ def get_s3_connection_config():
     Handles Docker detection and endpoint resolution.
     Also injects standard AWS environment variables for process-wide consistency.
     """
-    # Robust Docker detection
     is_docker_env = os.getenv("IS_DOCKER", "false").lower() == "true"
     has_dockerenv = os.path.exists("/.dockerenv")
-    # Modern cgroup v2 check
     is_cgroup_docker = False
     if os.path.exists("/proc/self/cgroup"):
         with open("/proc/self/cgroup") as f:
@@ -79,10 +77,9 @@ def get_s3_connection_config():
     os.environ["AWS_S3_ADDRESSING_STYLE"] = "path"
     os.environ["AWS_S3_PATH_STYLE_ACCESS"] = "true"
 
-    # Clean endpoint for DuckDB (remove http:// or https://)
     clean_endpoint = s3_endpoint.replace("http://", "").replace("https://", "")
 
-    # DuckDB specific environment variables (Hyper-Redundant)
+    # Deliberately redundant: different tools/libs look for different var names.
     os.environ["DUCKDB_S3_ENDPOINT"] = clean_endpoint
     os.environ["DUCKDB_S3_REGION"] = "us-east-1"
     os.environ["S3_URL_STYLE"] = "path"

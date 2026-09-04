@@ -11,13 +11,11 @@ from core.connection import ConnectionFactory
 # Only load .env if variables are not already set (prevents overriding Docker env with localhost)
 load_dotenv(override=False)
 
-# --- Page Config ---
 st.set_page_config(page_title="PureFlow BI Dashboard", layout="wide")
-st.title("🌊 PureFlow-Arch: Gold Business Insights")
+st.title("🌊 PureFlow: Gold Business Insights")
 st.markdown("This dashboard reads directly from the **Gold Layer** (S3/MinIO) using DuckDB.")
 
 
-# --- Database Setup ---
 @st.cache_resource
 def get_duckdb_conn():
     """Initializes and returns a DuckDB connection configured for S3/MinIO access.
@@ -32,7 +30,6 @@ def get_duckdb_conn():
     return conn
 
 
-# --- Data Loading ---
 def get_latest_partition_date(conn, bucket: str, table: str) -> str | None:
     """Finds the most recent dt=YYYY-MM-DD partition written for a Gold Delta table.
 
@@ -63,13 +60,11 @@ def load_gold_data():
         return pd.DataFrame(), latest_date
 
 
-# --- Visualization ---
 df, latest_run_date = load_gold_data()
 
 if not df.empty:
     st.caption(f"📅 Showing latest available run: **{latest_run_date}**")
 
-    # 1. Key Metrics
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("Total Revenue", f"$ {df['total_revenue'].sum():,.2f}")
@@ -80,7 +75,6 @@ if not df.empty:
 
     st.divider()
 
-    # 2. Charts
     chart_col1, chart_col2 = st.columns(2)
 
     with chart_col1:

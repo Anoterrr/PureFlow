@@ -21,7 +21,6 @@ class ConnectionFactory:
         if db_path is None:
             db_path = os.getenv("DUCKDB_PATH", "data/datagate_local.db")
 
-        # Ensure parent directory exists for file-based DBs
         if db_path != ":memory:":
             db_dir = os.path.dirname(db_path)
             if db_dir and not os.path.exists(db_dir):
@@ -36,7 +35,6 @@ class ConnectionFactory:
         conn.execute(f"SET memory_limit = '{memory_limit}'")
         conn.execute(f"SET threads = {threads}")
 
-        # Install extensions to read from MinIO (S3) and Delta Lake
         conn.execute("INSTALL httpfs;")
         conn.execute("LOAD httpfs;")
         conn.execute("INSTALL delta;")
@@ -65,7 +63,6 @@ class ConnectionFactory:
         conn.execute("SET s3_use_ssl = false")
         conn.execute("SET GLOBAL s3_use_ssl = false")
 
-        # Use Secrets Manager with CREDENTIAL_CHAIN and EXPLICIT ENDPOINT
         conn.execute(f"""
             CREATE OR REPLACE SECRET (
                 TYPE S3,
