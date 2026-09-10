@@ -100,8 +100,51 @@ docker-compose up -d --build
 The project architecture and interface previews:
 
 ### 🏗️ Architecture Diagram
-![PureFlow Architecture](docs/pureflow_architecture_data_flow.png)
 *High-level overview of the Medallion flow and technology stack.*
+
+```mermaid
+flowchart TD
+    DAGSTER["🎛️ Dagster — asset orchestration & quality-gate wiring"]
+    DBT["🧩 dbt models on DuckDB<br/>every layer written as Delta via a custom delta-rs plugin"]
+
+    DAGSTER --> DBT --> LAND
+
+    subgraph S3["🪣 MinIO / S3 — object storage"]
+        direction LR
+        LAND[("Landing Zone<br/>raw CSV / JSON<br/>external boundary")]
+        GXPRE{{"GX pre-flight"}}
+        BRONZE[("🥉 Bronze<br/>Delta table<br/>schema-enforced")]
+        GXB{{"GX check"}}
+        SILVER[("🥈 Silver<br/>Delta table<br/>validated + enriched")]
+        GXS{{"GX check"}}
+        GOLD[("🥇 Gold<br/>Delta table<br/>sales_summary")]
+
+        LAND --> GXPRE --> BRONZE --> GXB --> SILVER --> GXS --> GOLD
+    end
+
+    QUARANTINE[("🚧 Quarantine<br/>s3://bucket/quarantine/dt=.../reason=...")]
+    GXPRE -. on failure .-> QUARANTINE
+    GXB -. on failure .-> QUARANTINE
+    GXS -. on failure .-> QUARANTINE
+
+    GOLD --> STREAMLIT["📊 Streamlit Dashboard<br/>reads latest Gold partition"]
+    GOLD --> DBTDOCS["📖 dbt Docs<br/>model lineage & catalog"]
+    GOLD --> GXDOCS["🧪 GX Data Docs<br/>validation run reports"]
+
+    classDef gate fill:#fff3cd,stroke:#b8860b,color:#333;
+    classDef bronze fill:#f5deb3,stroke:#8b5a2b,color:#333;
+    classDef silver fill:#dfe6ee,stroke:#5a6b7d,color:#333;
+    classDef gold fill:#fff2b2,stroke:#a68b00,color:#333;
+    classDef quarantine fill:#fde0e0,stroke:#b22222,color:#333;
+    classDef outputs fill:#dbe9ff,stroke:#2255aa,color:#333;
+
+    class GXPRE,GXB,GXS gate;
+    class BRONZE bronze;
+    class SILVER silver;
+    class GOLD gold;
+    class QUARANTINE quarantine;
+    class STREAMLIT,DBTDOCS,GXDOCS outputs;
+```
 
 ### 🚀 Dagster UI (Orchestration)
 ![Dagster UI](docs/dagster_ui.png)
