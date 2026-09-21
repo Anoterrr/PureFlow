@@ -1,5 +1,5 @@
 """dbt-duckdb read plugin for the landing zone (raw CSV/JSON, the true external
-boundary — not part of the Delta lakehouse).
+boundary, not part of the Delta lakehouse).
 
 dbt only Jinja-renders .sql files, not `meta:` values in sources.yml, so
 `{{ var('execution_date') }}` inside `meta.external_location` never resolves.

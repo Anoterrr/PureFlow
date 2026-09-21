@@ -12,6 +12,16 @@ from core.logger import logger
 from core.quality import get_gx_context, get_or_create_suite
 
 
+class ValidationTechnicalError(RuntimeError):
+    """Validation could not be performed at all (S3 unreachable, GX wiring broken).
+
+    This is not a data-quality verdict. Collapsing the two meant
+    an unreachable MinIO produced `success=False`, which quarantined perfectly
+    good data and reported it as a quality failure. A gate that cannot read the
+    data must fail loudly, not condemn it.
+    """
+
+
 def validate_data(
     path: str,
     expectations: list[dict[str, Any]],
@@ -36,6 +46,8 @@ def validate_data(
 
     success = True
     error_msg = None
+    val_name = None
+    datasource_name = None
 
     web_report_url = "http://localhost:8082/index.html"
     base_docs_path = os.path.abspath("gx/uncommitted/data_docs/local_site")
@@ -107,17 +119,31 @@ def validate_data(
             logger.error("❌ [Validator] Validation FAILED.")
             error_msg = "Data quality validation failed (check GX report for details)."
 
-        context.build_data_docs()
+        # Report generation only, and the verdict above is already decided.
+        # Every check in a run calls this concurrently against the same
+        # gx/uncommitted/data_docs directory, and the collision was crashing
+        # whichever check lost the race - turning a passing table into a failed
+        # step. A missing report is worth a warning, never a false failure.
+        try:
+            context.build_data_docs()
+        except Exception as e:
+            logger.warning("⚠️ [Validator] Could not build data docs (report only): %s", e)
 
     except Exception as e:
         logger.error("❌ [Validator] Validation technical failure: %s", str(e))
-        success = False
-        error_msg = f"Technical validation failure: {str(e)}"
+        raise ValidationTechnicalError(
+            f"Could not validate {path}: {e}. This is NOT a data-quality verdict."
+        ) from e
     finally:
-        # Keep the context lean between calls
-        with contextlib.suppress(Exception):
-            context.validation_definitions.delete(val_name)
-            context.data_sources.delete(datasource_name)
+        # Keep the context lean between calls. Both names may be unbound if the
+        # failure happened before they were assigned, so each is guarded on its
+        # own instead of relying on suppress() swallowing a NameError.
+        if val_name is not None:
+            with contextlib.suppress(Exception):
+                context.validation_definitions.delete(val_name)
+        if datasource_name is not None:
+            with contextlib.suppress(Exception):
+                context.data_sources.delete(datasource_name)
 
     report_path = os.path.join(base_docs_path, "validations", suite_name)
     latest_report_file = os.path.join(base_docs_path, "index.html")

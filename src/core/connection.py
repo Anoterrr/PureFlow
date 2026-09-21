@@ -46,7 +46,15 @@ class ConnectionFactory:
 
     @staticmethod
     def setup_s3_auth(conn):
-        """Configures credentials for DuckDB to see MinIO using the official Secrets Manager (Hyper-Redundant)."""
+        """Configures DuckDB's S3 access for this connection via the Secrets Manager.
+
+        The secret is the only thing doing work here. This used to also run
+        `SET s3_url_style/s3_endpoint/s3_use_ssl` plus a `SET GLOBAL` of each,
+        which was measured to be redundant against a live MinIO: the secret
+        alone covers read_csv_auto, read_json_auto, delta_scan, glob and COPY TO.
+        The reverse is not true - SET without a secret fails on delta_scan,
+        which is why the secret is the part that must stay.
+        """
         s3_cfg = get_s3_connection_config()
 
         logger.info(
@@ -55,14 +63,8 @@ class ConnectionFactory:
             s3_cfg["s3_url_style"],
         )
 
-        # Enforce path style and endpoint (Session + Global)
-        conn.execute("SET s3_url_style = 'path'")
-        conn.execute("SET GLOBAL s3_url_style = 'path'")
-        conn.execute(f"SET s3_endpoint = '{s3_cfg['s3_endpoint']}'")
-        conn.execute(f"SET GLOBAL s3_endpoint = '{s3_cfg['s3_endpoint']}'")
-        conn.execute("SET s3_use_ssl = false")
-        conn.execute("SET GLOBAL s3_use_ssl = false")
-
+        # CREDENTIAL_CHAIN picks up the AWS_* variables that
+        # get_s3_connection_config() exports just above.
         conn.execute(f"""
             CREATE OR REPLACE SECRET (
                 TYPE S3,
@@ -72,4 +74,4 @@ class ConnectionFactory:
                 USE_SSL false
             );
         """)
-        logger.debug("✅ [Conn] S3 Secrets and Session parameters applied.")
+        logger.debug("✅ [Conn] S3 secret applied.")

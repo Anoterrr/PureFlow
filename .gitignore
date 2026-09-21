@@ -71,7 +71,12 @@ storage/
 # Ignore uncommitted checkpoints and generated data docs
 gx/uncommitted/
 gx/logs/
-# validation_definitions are created and deleted per-run by gx_validator.py —
+# Suite JSONs are OUTPUT, not source: the expectations are declared in
+# src/core/gates.py and validate_data() wipes and rebuilds each suite from that
+# list on every call. Keeping them tracked meant every pipeline run dirtied the
+# worktree with regenerated files nothing reads.
+gx/expectations/*.json
+# validation_definitions are created and deleted per-run by gx_validator.py and are
 # never meant to persist between runs, let alone be committed.
 gx/validation_definitions/
 

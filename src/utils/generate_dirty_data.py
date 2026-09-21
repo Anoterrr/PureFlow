@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from core.config import BASE_DATE, get_s3_paths
+from core.config import get_base_date, get_s3_paths
 from core.connection import ConnectionFactory
 from core.logger import logger
 from utils.generators import generate_base_customers, generate_base_sales
@@ -14,7 +14,7 @@ def generate_dirty_big_data(execution_date=None):
     conn = factory.get_duckdb_conn(db_path=":memory:")
     factory.setup_s3_auth(conn)
 
-    base_date = execution_date or BASE_DATE
+    base_date = execution_date or get_base_date()
     s3_paths = get_s3_paths(base_date=base_date)
 
     n_customers = 1000

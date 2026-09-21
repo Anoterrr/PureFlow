@@ -31,4 +31,3 @@ SELECT
     round(avg(sale_value), 2) AS avg_ticket
 FROM enriched_sales
 GROUP BY region, sale_month
-ORDER BY total_revenue DESC

@@ -22,7 +22,10 @@ services:
       - pureflow_net
 
   minio_init:
-    image: minio/mc
+    # quay.io, not Docker Hub: MinIO pulled their images from Hub, so the old
+    # `image: minio/mc` now fails with "pull access denied" and the whole stack
+    # never comes up. The server below was already on quay.io; this was not.
+    image: quay.io/minio/mc:latest
     container_name: pureflow_minio_init
     depends_on:
       minio:
@@ -37,7 +40,6 @@ services:
       /usr/bin/mc mb pureflow/${S3_BUCKET_BRONZE:-bronze} || true;
       /usr/bin/mc mb pureflow/${S3_BUCKET_SILVER:-silver} || true;
       /usr/bin/mc mb pureflow/${S3_BUCKET_GOLD:-gold} || true;
-      /usr/bin/mc mb pureflow/${S3_BUCKET_QUARANTINE:-quarantine} || true;
       echo '✅ Buckets created!';
       exit 0;
       "
@@ -57,10 +59,6 @@ services:
       - AWS_SECRET_ACCESS_KEY=${STORAGE_PASSWORD:-strongpassword123}
       - AWS_ENDPOINT_URL=http://minio:9000
       - AWS_REGION=us-east-1
-      - DUCKDB_S3_USE_SSL=false
-      - DUCKDB_S3_URL_STYLE=path
-      - AWS_S3_ADDRESSING_STYLE=path
-      - AWS_S3_PATH_STYLE_ACCESS=true
       - IS_DOCKER=true
     working_dir: /app
     volumes:
@@ -68,11 +66,16 @@ services:
       - ./dagster_home:/app/dagster_home
     ports:
       - "127.0.0.1:3000:3000"
-    # COMPILATION GATE: Ensures dbt manifest is fresh before starting Dagster
+    # MANIFEST GATE: Dagster needs a fresh dbt manifest before it can load.
+    # `dbt parse`, not `dbt compile`: compile resolves the landing sources,
+    # which makes the landing_read plugin actually read the S3 files. On a
+    # clean machine there is no landing data yet, so compile aborted and the
+    # container never started - `docker compose up` could not work from
+    # scratch. parse builds the same manifest without touching storage.
     command: >
       bash -c "echo '🚀 Initializing PureFlow Environment...' &&
                cd dbt &&
-               dbt compile --profiles-dir . --profile pureflow &&
+               dbt parse --profiles-dir . --profile pureflow &&
                cd /app &&
                echo '✅ dbt Manifest updated. Starting Dagster...' &&
                dagster dev -h 0.0.0.0 -p 3000 -f /app/src/orchestration.py"
@@ -102,8 +105,6 @@ services:
       - AWS_SECRET_ACCESS_KEY=${STORAGE_PASSWORD:-strongpassword123}
       - AWS_ENDPOINT_URL=http://minio:9000
       - AWS_REGION=us-east-1
-      - AWS_S3_ADDRESSING_STYLE=path
-      - AWS_S3_PATH_STYLE_ACCESS=true
       - IS_DOCKER=true
     volumes:
       - .:/app
@@ -129,8 +130,6 @@ services:
       - AWS_SECRET_ACCESS_KEY=${STORAGE_PASSWORD:-strongpassword123}
       - AWS_ENDPOINT_URL=http://minio:9000
       - AWS_REGION=us-east-1
-      - AWS_S3_ADDRESSING_STYLE=path
-      - AWS_S3_PATH_STYLE_ACCESS=true
       - IS_DOCKER=true
     volumes:
       - .:/app

@@ -2,7 +2,7 @@
 
 from deltalake import write_deltalake
 
-from core.config import BASE_DATE, get_delta_storage_options, get_s3_paths
+from core.config import get_base_date, get_delta_storage_options, get_s3_paths
 from core.connection import ConnectionFactory
 from core.logger import logger
 
@@ -13,7 +13,7 @@ def corrupt_landing_zone(execution_date=None):
     conn = factory.get_duckdb_conn(db_path=":memory:")
     factory.setup_s3_auth(conn)
 
-    base_date = execution_date or BASE_DATE
+    base_date = execution_date or get_base_date()
     s3_paths = get_s3_paths(base_date=base_date)
 
     logger.warning("🧨 [Corruptor] Corrupting Landing Zone data for date %s...", base_date)
@@ -38,7 +38,7 @@ def corrupt_landing_zone(execution_date=None):
 
     # 2. Corrupt Customers (JSON) - Invalid Emails
     # Column names must match what stg_customers_bronze expects: id, name, email, city, state
-    # NOTE: base_date is inlined (not bound as `?`) — a COPY with a placeholder
+    # NOTE: base_date is inlined (not bound as `?`) because a COPY with a placeholder
     # both inside the SELECT and in the TO clause silently writes nothing on
     # this DuckDB version (no error raised); base_date is an internal value,
     # never user input, so inlining it here is safe.
@@ -80,7 +80,7 @@ def corrupt_bronze_layer(execution_date=None):
     conn = factory.get_duckdb_conn(db_path=":memory:")
     factory.setup_s3_auth(conn)
 
-    base_date = execution_date or BASE_DATE
+    base_date = execution_date or get_base_date()
     s3_paths = get_s3_paths(base_date=base_date)
 
     logger.warning("🧨 [Corruptor] Corrupting Bronze Layer for date %s...", base_date)
@@ -129,41 +129,6 @@ def corrupt_bronze_layer(execution_date=None):
     logger.info("✅ Bronze Layer corrupted.")
 
 
-def corrupt_silver_layer(execution_date=None):
-    """Overwrites the Sales Silver Delta table directly with bad data, to test Gold gates."""
-    factory = ConnectionFactory()
-    conn = factory.get_duckdb_conn(db_path=":memory:")
-    factory.setup_s3_auth(conn)
-
-    base_date = execution_date or BASE_DATE
-    s3_paths = get_s3_paths(base_date=base_date)
-
-    logger.warning("🧨 [Corruptor] Corrupting Silver Layer (DELTA) for date %s...", base_date)
-
-    try:
-        # Corrupt Sales Silver (Delta) - Extreme prices
-        # Silver format: id, customer_id, product, price, sale_date
-        _write_corrupt_delta(
-            conn,
-            """
-            SELECT
-                range as id,
-                1 as customer_id,
-                'Silver Corruption' as product,
-                999999.99 as price,
-                CAST('2026-04-20' AS DATE) as sale_date,
-                now() as _processed_at
-            FROM range(5000, 5010)
-            """,
-            s3_paths["sales_silver"],
-        )
-    finally:
-        conn.close()
-
-    logger.info("✅ Silver Layer corrupted.")
-
-
 if __name__ == "__main__":
     corrupt_landing_zone()
     corrupt_bronze_layer()
-    corrupt_silver_layer()

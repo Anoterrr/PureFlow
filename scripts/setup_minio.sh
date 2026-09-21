@@ -1,6 +1,6 @@
 #!/bin/bash
 # scripts/setup_minio.sh: Manual fallback to create required buckets in MinIO.
-# NOTE: not normally needed — the `minio_init` service in docker-compose.yml
+# NOTE: not normally needed. The `minio_init` service in docker-compose.yml
 # already creates these buckets automatically on `docker-compose up`.
 
 if [ -f .env ]; then

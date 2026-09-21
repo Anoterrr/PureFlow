@@ -1,6 +1,6 @@
 """Dagster orchestration for PureFlow.
 
-Bronze/Silver/Gold live as dbt models (dbt/models/) — this module wires them
+Bronze/Silver/Gold live as dbt models (dbt/models/). This module wires them
 into Dagster, plus the Great Expectations quality gates around them: a
 pre-flight check on raw landing files and a post-write @asset_check per model.
 """
@@ -17,17 +17,18 @@ from dagster import (
     asset,
     asset_check,
     define_asset_job,
-    load_assets_from_current_module,
 )
 from dagster_dbt import DagsterDbtTranslator, DbtCliResource, dbt_assets
 
+from core.config import get_s3_paths
 from core.engine import PureFlowEngine
-from core.quality import GreatExpectationsResource, reinforce_global_s3_config
+from core.gates import SOURCE_GATES, TARGET_GATES, SourceGate, TargetGate
+from core.quality import GreatExpectationsResource, prime_s3_environment
 from core.resources import ExecutionDateResource
 from utils.generate_clean_data import generate_clean_big_data
 from utils.generate_corrupt_data import corrupt_bronze_layer, corrupt_landing_zone
 from utils.generate_dirty_data import generate_dirty_big_data
-from validation.gx_validator import validate_data
+from validation.gx_validator import ValidationTechnicalError, validate_data
 
 DBT_PROJECT_DIR = Path(__file__).joinpath("..", "..", "dbt").resolve()
 dbt_resource = DbtCliResource(project_dir=os.fspath(DBT_PROJECT_DIR))
@@ -41,8 +42,8 @@ class PureFlowDbtTranslator(DagsterDbtTranslator):
 
         Sources map onto the landing-zone gate assets below by name; models get
         a plain AssetKey(name) (instead of dagster-dbt's default schema-prefixed
-        key) so the @asset_check definitions below — which target AssetKey(name)
-        directly — actually attach to the right asset.
+        key) so the @asset_check definitions below, which target AssetKey(name)
+        directly, actually attach to the right asset.
         """
         resource_type = dbt_resource_props.get("resource_type")
         if resource_type in ("source", "model"):
@@ -65,11 +66,11 @@ class PureFlowDbtTranslator(DagsterDbtTranslator):
 def pureflow_dbt_assets(
     context, dbt: DbtCliResource, execution_date_resource: ExecutionDateResource
 ):
-    """Bronze/Silver/Gold — every dbt model, materialized as Delta via the delta_rw plugin."""
+    """Bronze/Silver/Gold: every dbt model, materialized as Delta via the delta_rw plugin."""
     execution_date = execution_date_resource.resolved_date
     # The landing_read plugin (dbt_plugins/landing_source.py) can't see dbt's --vars
     # (it only Jinja-renders .sql, not sources.yml meta), so it reads this env var
-    # directly — set it here to keep both resolution paths in agreement.
+    # directly, so it is set here to keep both resolution paths in agreement.
     os.environ["EXECUTION_DATE"] = execution_date
     yield from dbt.cli(
         ["run", "--vars", f"execution_date: {execution_date}"],
@@ -77,47 +78,15 @@ def pureflow_dbt_assets(
     ).stream()
 
 
-SALES_LANDING_EXPECTATIONS = [
-    {
-        "expectation": "ExpectTableRowCountToBeBetween",
-        "kwargs": {"min_value": 1, "max_value": 2000000},
-    },
-    {"expectation": "ExpectColumnValuesToNotBeNull", "kwargs": {"column": "customer_id"}},
-]
-CUSTOMERS_LANDING_EXPECTATIONS = [
-    {"expectation": "ExpectColumnValuesToNotBeNull", "kwargs": {"column": "id"}},
-]
-STG_SALES_BRONZE_TARGET_EXPECTATIONS = [
-    {"expectation": "ExpectColumnValuesToNotBeNull", "kwargs": {"column": "id"}},
-]
-STG_CUSTOMERS_BRONZE_TARGET_EXPECTATIONS = [
-    {
-        "expectation": "ExpectColumnValuesToMatchRegex",
-        "kwargs": {"column": "email", "regex": r"[^@]+@[^@]+\.[^@]+"},
-    },
-]
-SALES_SILVER_TARGET_EXPECTATIONS = [
-    {
-        "expectation": "ExpectColumnValuesToBeBetween",
-        "kwargs": {"column": "price", "min_value": 0, "max_value": 10000},
-    },
-]
-CUSTOMERS_SILVER_TARGET_EXPECTATIONS = [
-    {"expectation": "ExpectColumnValuesToNotBeNull", "kwargs": {"column": "email"}},
-]
-SALES_SUMMARY_TARGET_EXPECTATIONS = [
-    {
-        "expectation": "ExpectColumnValuesToBeBetween",
-        "kwargs": {"column": "avg_ticket", "min_value": 0, "max_value": 100000},
-    },
-    {"expectation": "ExpectColumnValuesToNotBeNull", "kwargs": {"column": "total_revenue"}},
-]
-
-
 def _run_source_gate(context, gx_resource, execution_date, path, data_format, expectations, name):
-    """Pre-flight circuit breaker: validates raw input *before* a dbt model reads it. Raises on failure."""
+    """Pre-flight circuit breaker: validates raw input *before* a dbt model reads it.
+
+    Raises on failure. A ValidationTechnicalError propagates untouched and
+    skips quarantine: if the gate could not read the data, it has
+    no basis to condemn it.
+    """
     engine = PureFlowEngine(execution_date=execution_date)
-    success, report_url, error_msg = validate_data(
+    success, report_url, _ = validate_data(
         path=path,
         expectations=expectations,
         data_format=data_format,
@@ -128,8 +97,11 @@ def _run_source_gate(context, gx_resource, execution_date, path, data_format, ex
         q_path = engine.quarantine_data(
             path, reason=f"source_fail_{name}", source_format=data_format
         )
+        where = (
+            f"Quarantined to {q_path}." if q_path else "QUARANTINE ALSO FAILED, data left in place."
+        )
         context.log.error(
-            f"❌ [Gatekeeper] {name} source validation FAILED. Quarantined to {q_path}. Report: {report_url}"
+            f"❌ [Gatekeeper] {name} source validation FAILED. {where} Report: {report_url}"
         )
         raise ValueError(f"Circuit Breaker: {name} source validation failed. Report: {report_url}")
     context.log.info(f"✅ [Gatekeeper] {name} source validation passed. Report: {report_url}")
@@ -138,217 +110,219 @@ def _run_source_gate(context, gx_resource, execution_date, path, data_format, ex
 def _run_target_check(gx_resource, execution_date, path, data_format, expectations, name):
     """Post-write circuit breaker: validates a dbt model's output, quarantining it on failure."""
     engine = PureFlowEngine(execution_date=execution_date)
-    success, report_url, error_msg = validate_data(
-        path=path,
-        expectations=expectations,
-        data_format=data_format,
-        suite_name=f"check_{name}_target",
-        context=gx_resource.get_context(),
-    )
-    metadata = {"report_url": MetadataValue.url(report_url)}
+    try:
+        success, report_url, error_msg = validate_data(
+            path=path,
+            expectations=expectations,
+            data_format=data_format,
+            suite_name=f"check_{name}_target",
+            context=gx_resource.get_context(),
+        )
+    except ValidationTechnicalError as e:
+        # The check still fails, but it is tagged as technical and nothing is
+        # quarantined: the data was never read, so it was never judged.
+        return AssetCheckResult(
+            passed=False,
+            metadata={
+                "failure_type": MetadataValue.text("technical"),
+                "error": MetadataValue.text(str(e)),
+            },
+        )
+
+    metadata = {
+        "report_url": MetadataValue.url(report_url),
+        "failure_type": MetadataValue.text("none" if success else "data_quality"),
+    }
     if not success:
         q_path = engine.quarantine_data(
             path, reason=f"target_fail_{name}", source_format=data_format
         )
-        metadata["quarantine_path"] = MetadataValue.path(q_path)
+        metadata["quarantine_path"] = (
+            MetadataValue.path(q_path) if q_path else MetadataValue.text("QUARANTINE FAILED")
+        )
         metadata["error"] = MetadataValue.text(error_msg or "")
     return AssetCheckResult(passed=success, metadata=metadata)
 
 
-@asset(
-    name="sales_landing",
-    group_name="landing",
-    compute_kind="python",
-    # Only actually enforced when a job selects both (quality_test_job) — jobs
-    # that don't include inject_corrupt_landing (e.g. pureflow_pipeline_job)
-    # simply treat it as already-satisfied, per normal Dagster subset semantics.
-    # Without this edge, quality_test_job races: this gate can read landing
-    # before the corruptor finishes writing it.
-    deps=[AssetKey("inject_corrupt_landing")],
-)
-def sales_landing(
-    context, gx_resource: GreatExpectationsResource, execution_date_resource: ExecutionDateResource
-):
-    """Pre-flight gate on the raw landing CSV — dbt source `landing.sales_landing`, read by stg_sales_bronze."""
-    execution_date = execution_date_resource.resolved_date
-    _run_source_gate(
+def _build_source_gate_asset(gate: SourceGate):
+    """One pre-flight asset per SOURCE_GATES entry."""
+
+    @asset(
+        name=gate.name,
+        group_name="landing",
+        compute_kind="python",
+        # Only actually enforced when a job selects both, which is the case in
+        # quality_test_landing_job. Jobs that leave inject_corrupt_landing out
+        # (e.g. pureflow_pipeline_job) treat it as already-satisfied, per normal
+        # Dagster subset semantics. Without this edge the gate can read landing
+        # before the corruptor has finished writing it.
+        deps=[AssetKey("inject_corrupt_landing")],
+    )
+    def _source_gate(
         context,
-        gx_resource,
-        execution_date,
-        path=f"s3://landing-zone/sales_erp/dt={execution_date}/sales.csv",
-        data_format="csv",
-        expectations=SALES_LANDING_EXPECTATIONS,
-        name="sales_landing",
+        gx_resource: GreatExpectationsResource,
+        execution_date_resource: ExecutionDateResource,
+    ):
+        execution_date = execution_date_resource.resolved_date
+        _run_source_gate(
+            context,
+            gx_resource,
+            execution_date,
+            path=get_s3_paths(execution_date)[gate.path_key],
+            data_format=gate.data_format,
+            expectations=gate.expectations,
+            name=gate.name,
+        )
+
+    return _source_gate
+
+
+def _build_target_gate_check(gate: TargetGate):
+    """One post-write @asset_check per TARGET_GATES entry."""
+
+    @asset_check(
+        asset=AssetKey(gate.name),
+        name=gate.dagster_check_name,
+        blocking=gate.blocking,
+        additional_deps=[AssetKey(dep) for dep in gate.additional_deps],
     )
+    def _target_check(
+        gx_resource: GreatExpectationsResource,
+        execution_date_resource: ExecutionDateResource,
+    ):
+        execution_date = execution_date_resource.resolved_date
+        return _run_target_check(
+            gx_resource,
+            execution_date,
+            path=get_s3_paths(execution_date)[gate.path_key],
+            data_format=gate.data_format,
+            expectations=gate.expectations,
+            name=gate.name,
+        )
+
+    return _target_check
 
 
-@asset(
-    name="customers_landing",
-    group_name="landing",
-    compute_kind="python",
-    deps=[AssetKey("inject_corrupt_landing")],
-)
-def customers_landing(
-    context, gx_resource: GreatExpectationsResource, execution_date_resource: ExecutionDateResource
+def _build_generator_asset(
+    name: str, group: str, generate, message: str, level: str = "info", deps: tuple[str, ...] = ()
 ):
-    """Pre-flight gate on the raw landing JSON — dbt source `landing.customers_landing`, read by stg_customers_bronze."""
-    execution_date = execution_date_resource.resolved_date
-    _run_source_gate(
-        context,
-        gx_resource,
-        execution_date,
-        path=f"s3://landing-zone/customers_crm/dt={execution_date}/customers.json",
-        data_format="json",
-        expectations=CUSTOMERS_LANDING_EXPECTATIONS,
-        name="customers_landing",
+    """One synthetic-data asset per GENERATORS entry."""
+
+    @asset(
+        name=name,
+        group_name=group,
+        compute_kind="python",
+        deps=[AssetKey(d) for d in deps],
     )
+    def _generator(context, execution_date_resource: ExecutionDateResource):
+        execution_date = execution_date_resource.resolved_date
+        generate(execution_date=execution_date)
+        getattr(context.log, level)(message.format(date=execution_date))
+
+    return _generator
 
 
-@asset_check(
-    asset=AssetKey("stg_sales_bronze"), name="check_stg_sales_bronze_target", blocking=True
-)
-def check_stg_sales_bronze_target(
-    gx_resource: GreatExpectationsResource, execution_date_resource: ExecutionDateResource
-):
-    execution_date = execution_date_resource.resolved_date
-    return _run_target_check(
-        gx_resource,
-        execution_date,
-        path=f"s3://bronze/sales_erp/dt={execution_date}/stg_sales_bronze",
-        data_format="delta",
-        expectations=STG_SALES_BRONZE_TARGET_EXPECTATIONS,
-        name="stg_sales_bronze",
-    )
+GENERATORS = [
+    (
+        "generate_clean_data",
+        "clean_data",
+        generate_clean_big_data,
+        "✅ CLEAN data generated for {date}.",
+        "info",
+        (),
+    ),
+    (
+        "generate_dirty_data",
+        "dirty_data",
+        generate_dirty_big_data,
+        "⚠️ DIRTY data generated for {date}.",
+        "warning",
+        (),
+    ),
+    (
+        "inject_corrupt_landing",
+        "test_quality",
+        corrupt_landing_zone,
+        "🧨 Landing Zone corrupted for {date}.",
+        "warning",
+        (),
+    ),
+    (
+        "inject_corrupt_bronze",
+        "test_quality",
+        corrupt_bronze_layer,
+        "🧨 Bronze Layer corrupted for {date}.",
+        "warning",
+        # No deps on the Bronze models here. Depending on them would be
+        # the obvious way to land after `dbt run`, but the Bronze checks are
+        # blocking, so Dagster puts the check node between the asset and its
+        # consumers and the graph becomes corruptor -> check -> corruptor.
+        # quality_test_bronze_job solves it by leaving dbt out of the run.
+        (),
+    ),
+]
 
+source_gate_assets = [_build_source_gate_asset(g) for g in SOURCE_GATES]
+target_gate_checks = [_build_target_gate_check(g) for g in TARGET_GATES]
+checks_by_gate = dict(zip([g.name for g in TARGET_GATES], target_gate_checks, strict=True))
+generator_assets = [_build_generator_asset(*spec) for spec in GENERATORS]
 
-@asset_check(
-    asset=AssetKey("stg_customers_bronze"), name="check_stg_customers_bronze_target", blocking=True
-)
-def check_stg_customers_bronze_target(
-    gx_resource: GreatExpectationsResource, execution_date_resource: ExecutionDateResource
-):
-    execution_date = execution_date_resource.resolved_date
-    return _run_target_check(
-        gx_resource,
-        execution_date,
-        path=f"s3://bronze/customers_crm/dt={execution_date}/stg_customers_bronze",
-        data_format="delta",
-        expectations=STG_CUSTOMERS_BRONZE_TARGET_EXPECTATIONS,
-        name="stg_customers_bronze",
-    )
+# Built explicitly rather than via load_assets_from_current_module(): the gate
+# assets are produced by a factory, and that helper only picks up assets bound
+# to a module-level name. It also never collected @asset_check at all, which is
+# why the check list used to be maintained by hand, and could miss one.
+all_assets = [pureflow_dbt_assets, *source_gate_assets, *generator_assets]
+all_asset_checks = target_gate_checks
 
-
-@asset_check(asset=AssetKey("sales_silver"), name="check_sales_silver_target", blocking=True)
-def check_sales_silver_target(
-    gx_resource: GreatExpectationsResource, execution_date_resource: ExecutionDateResource
-):
-    execution_date = execution_date_resource.resolved_date
-    return _run_target_check(
-        gx_resource,
-        execution_date,
-        path=f"s3://silver/sales/dt={execution_date}",
-        data_format="delta",
-        expectations=SALES_SILVER_TARGET_EXPECTATIONS,
-        name="sales_silver",
-    )
-
-
-@asset_check(
-    asset=AssetKey("customers_silver"), name="check_customers_silver_target", blocking=True
-)
-def check_customers_silver_target(
-    gx_resource: GreatExpectationsResource, execution_date_resource: ExecutionDateResource
-):
-    execution_date = execution_date_resource.resolved_date
-    return _run_target_check(
-        gx_resource,
-        execution_date,
-        path=f"s3://silver/customers/dt={execution_date}",
-        data_format="delta",
-        expectations=CUSTOMERS_SILVER_TARGET_EXPECTATIONS,
-        name="customers_silver",
-    )
-
-
-@asset_check(asset=AssetKey("sales_summary"), name="check_sales_summary")
-def check_sales_summary(
-    gx_resource: GreatExpectationsResource, execution_date_resource: ExecutionDateResource
-):
-    """Gold quality gate — non-blocking since nothing in the DAG consumes Gold downstream."""
-    execution_date = execution_date_resource.resolved_date
-    return _run_target_check(
-        gx_resource,
-        execution_date,
-        path=f"s3://gold/sales_summary/dt={execution_date}",
-        data_format="delta",
-        expectations=SALES_SUMMARY_TARGET_EXPECTATIONS,
-        name="sales_summary",
-    )
-
-
-@asset(group_name="data_generators", compute_kind="python")
-def generate_clean_data(context, execution_date_resource: ExecutionDateResource):
-    """Generates CLEAN synthetic data in the Landing Zone."""
-    execution_date = execution_date_resource.resolved_date
-    generate_clean_big_data(execution_date=execution_date)
-    context.log.info(f"✅ CLEAN data generated successfully for {execution_date}.")
-
-
-@asset(group_name="data_generators", compute_kind="python")
-def generate_dirty_data(context, execution_date_resource: ExecutionDateResource):
-    """Generates DIRTY synthetic data to test Quality Gates."""
-    execution_date = execution_date_resource.resolved_date
-    generate_dirty_big_data(execution_date=execution_date)
-    context.log.warning(f"⚠️ DIRTY data generated for {execution_date}.")
-
-
-@asset(group_name="test_quality", compute_kind="python")
-def inject_corrupt_landing(context, execution_date_resource: ExecutionDateResource):
-    """Intentional data corruption at Landing Zone."""
-    execution_date = execution_date_resource.resolved_date
-    corrupt_landing_zone(execution_date=execution_date)
-    context.log.warning(f"🧨 Landing Zone data corrupted for {execution_date}.")
-
-
-@asset(group_name="test_quality", compute_kind="python")
-def inject_corrupt_bronze(context, execution_date_resource: ExecutionDateResource):
-    """Intentional data corruption at Bronze Layer."""
-    execution_date = execution_date_resource.resolved_date
-    corrupt_bronze_layer(execution_date=execution_date)
-    context.log.warning(f"🧨 Bronze Layer data corrupted for {execution_date}.")
-
+# The two data generators write to the *same* landing paths, so a job selecting
+# both races and the winner is undefined. They get one job each: you generate a
+# clean landing zone or a dirty one, never both at once.
+GENERATOR_GROUPS = ("clean_data", "dirty_data", "test_quality")
 
 pureflow_pipeline_job = define_asset_job(
     name="pureflow_pipeline_job",
-    selection=AssetSelection.all() - AssetSelection.groups("data_generators", "test_quality"),
+    selection=AssetSelection.all() - AssetSelection.groups(*GENERATOR_GROUPS),
 )
 
 data_generation_job = define_asset_job(
     name="data_generation_job",
-    selection=AssetSelection.groups("data_generators"),
+    selection=AssetSelection.groups("clean_data"),
 )
 
-# Corrupts landing/bronze, then runs the same pipeline so the quality gates catch it
-quality_test_job = define_asset_job(
-    name="quality_test_job",
+dirty_data_generation_job = define_asset_job(
+    name="dirty_data_generation_job",
+    selection=AssetSelection.groups("dirty_data"),
+)
+
+# Two separate demos, one per circuit breaker. They cannot be shown in a single
+# run any more: now that the pre-flight gate actually fires, corrupt landing
+# halts the pipeline before dbt materializes Bronze, so a Bronze corruption in
+# the same run would never be reached by anything.
+quality_test_landing_job = define_asset_job(
+    name="quality_test_landing_job",
+    # Pre-flight breaker: corrupt the raw files, watch the landing gates refuse
+    # them and quarantine before a single dbt model reads them.
     selection=(
-        AssetSelection.groups("test_quality")
-        | AssetSelection.groups("landing", "bronze", "silver", "gold")
+        AssetSelection.assets(AssetKey("inject_corrupt_landing")) | AssetSelection.groups("landing")
     ),
 )
 
-reinforce_global_s3_config()
+quality_test_bronze_job = define_asset_job(
+    name="quality_test_bronze_job",
+    # Post-write breaker, run as step two: `pureflow_pipeline_job` first to
+    # materialize a clean Bronze, then this, which corrupts those Delta tables
+    # and re-runs only their blocking gates. dbt is NOT in this
+    # job - when it was, `dbt run` rebuilt Bronze from clean landing and wiped
+    # the corruption before the gate could see it.
+    selection=(
+        AssetSelection.assets(AssetKey("inject_corrupt_bronze"))
+        | AssetSelection.checks(
+            checks_by_gate["stg_sales_bronze"], checks_by_gate["stg_customers_bronze"]
+        )
+    ),
+)
 
-all_assets = list(load_assets_from_current_module())
-# load_assets_from_current_module() doesn't pick up @asset_check (a distinct
-# AssetChecksDefinition type), so they're collected separately below.
-all_asset_checks = [
-    check_stg_sales_bronze_target,
-    check_stg_customers_bronze_target,
-    check_sales_silver_target,
-    check_customers_silver_target,
-    check_sales_summary,
-]
+prime_s3_environment()
 
 gx_resource = GreatExpectationsResource(ge_root_dir=os.fspath(Path(__file__).parent.parent / "gx"))
 
@@ -360,5 +334,11 @@ defs = Definitions(
         "gx_resource": gx_resource,
         "execution_date_resource": ExecutionDateResource(),
     },
-    jobs=[pureflow_pipeline_job, data_generation_job, quality_test_job],
+    jobs=[
+        pureflow_pipeline_job,
+        data_generation_job,
+        dirty_data_generation_job,
+        quality_test_landing_job,
+        quality_test_bronze_job,
+    ],
 )

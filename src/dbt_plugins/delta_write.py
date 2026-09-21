@@ -1,6 +1,6 @@
 """dbt-duckdb write plugin: materializes 'external' models as Delta tables.
 
-dbt-duckdb's bundled 'delta' plugin only reads (no store()) — Delta writes
+dbt-duckdb's bundled 'delta' plugin only reads (no store()), so Delta writes
 aren't native. This hooks into the external materialization's store_relation()
 call to convert the staged output into a real Delta table via delta-rs,
 reading it back through DuckDB rather than pandas+s3fs (not a dependency here).

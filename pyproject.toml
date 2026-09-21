@@ -18,16 +18,24 @@ dependencies = [
     "dagster>=1.7.0",
     "dagster-webserver>=1.7.0",
     "dagster-dbt>=0.23.0",
-    "dagster-ge>=0.23.0",
     "streamlit>=1.32.0",
-    "sqlalchemy>=2.0.0",
-    "duckdb-engine>=0.11.0",
+    # core/quality.py parses great_expectations.yml directly; it used to ride in
+    # transitively, which breaks the moment a transitive dep drops it.
+    "pyyaml>=6.0",
+]
+
+# Kept out of the runtime dependencies so they do not ship inside the image:
+# `uv sync` installs them locally and in CI, `uv sync --no-dev` (the Dockerfile)
+# does not. Removed along the way: dagster-ge (this project deliberately uses
+# its own GX integration instead), sqlalchemy and duckdb-engine (never imported).
+[dependency-groups]
+dev = [
     "pytest>=8.0.0",
     "sqlfluff>=3.0.0",
     "sqlfluff-templater-dbt>=3.0.0",
     "bandit>=1.7.0",
     "ruff>=0.8.0",
-    "pre-commit>=3.8.0"
+    "pre-commit>=3.8.0",
 ]
 
 [tool.uv]
@@ -35,7 +43,7 @@ package = false
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py311"
 src = ["src", "tests"]
 extend-exclude = ["dbt/target", "dbt/dbt_packages", "gx/uncommitted", "dagster_home"]
 
@@ -44,9 +52,6 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 ignore = [
     "E501",   # line length handled by ruff format
 ]
-
-[tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101"]
 
 [tool.sqlfluff.core]
 templater = "dbt"

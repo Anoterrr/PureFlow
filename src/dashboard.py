@@ -21,7 +21,7 @@ def get_duckdb_conn():
     """Initializes and returns a DuckDB connection configured for S3/MinIO access.
 
     Reuses ConnectionFactory (core/connection.py) rather than hand-rolling S3
-    setup — its CREATE SECRET-based auth is what the delta extension actually
+    setup: its CREATE SECRET-based auth is what the delta extension actually
     needs (plain SET s3_access_key_id/etc. isn't enough for delta_scan()).
     """
     factory = ConnectionFactory()

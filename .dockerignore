@@ -1,9 +1,16 @@
-# Ignorar dados e volumes
+# Ignorar dados, volumes e artefatos de execucao
 data/
-.airflow/
 logs/
 dbt/logs/
 dbt/target/
+# Historico de runs do Dagster: centenas de arquivos de log que nao tem
+# nenhuma razao para entrar na imagem (o compose monta isso como volume)
+dagster_home/
+# Relatorios do GX sao gerados em runtime
+gx/uncommitted/
+.venv/
+.pytest_cache/
+.ruff_cache/
 
 # Ignorar Python
 __pycache__/

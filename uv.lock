@@ -459,21 +459,6 @@ wheels = [
 ]
 
 [[package]]
-name = "dagster-ge"
-version = "0.25.11"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "dagster" },
-    { name = "dagster-pandas" },
-    { name = "great-expectations" },
-    { name = "pandas" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/2c/a2/83ca021593224fb09994dd418f26be4831abfa5df5bc8a00b3457a1669dd/dagster-ge-0.25.11.tar.gz", hash = "sha256:528eb7e8f9fd4d435e123f8b8ef4a985ce5b55b44b99e677e5e6b8dbb003cc20", size = 7978, upload-time = "2025-01-29T20:46:00.035Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/78/9e/d5c4f95cd7a83edd4ea09cdd7d335fe49133cfc1847da2c5b2bf49a0c43f/dagster_ge-0.25.11-py3-none-any.whl", hash = "sha256:bf8f346ff807de4dfb8409fc1c7a2f826ad4b02af691a61e81b641a67647c6d9", size = 8324, upload-time = "2025-01-29T20:45:58.868Z" },
-]
-
-[[package]]
 name = "dagster-graphql"
 version = "1.9.11"
 source = { registry = "https://pypi.org/simple" }
@@ -487,19 +472,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f9/de/04dd3d4cb114566bcac86e6b8b2ac6e89973dc6c29de471608fa1ef0a0e3/dagster-graphql-1.9.11.tar.gz", hash = "sha256:a3540978abca8d19a12a96a2a97bf1d06108df837791964ca054835e83f43b04", size = 146223, upload-time = "2025-01-29T20:28:52.917Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9e/a9/e4ebd80193422ec3857b3518d87fc55cb436b6a32dd31f4674dc7a0ade09/dagster_graphql-1.9.11-py3-none-any.whl", hash = "sha256:7231800f550b7ad2f60b9a8d353cc5528edb763dff67d765eaf2cced81aba89d", size = 192320, upload-time = "2025-01-29T20:28:50.4Z" },
-]
-
-[[package]]
-name = "dagster-pandas"
-version = "0.25.11"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "dagster" },
-    { name = "pandas" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/4b/a1/bea1bd98db339ce97fe3126c3d398a26e8d5211d05dd89d5933d7d615897/dagster-pandas-0.25.11.tar.gz", hash = "sha256:dbd48b4ccfda01af0c2854c62ad728fd743b8bc68242cf8e66b38b2d33fa2d9d", size = 21070, upload-time = "2025-01-29T20:44:02.204Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/14/38/90c8d93b993253c1f3f7ebade96901d152a0c2d41483863c2d412e1bee2c/dagster_pandas-0.25.11-py3-none-any.whl", hash = "sha256:2defef469bb2dab8033123fe7e05e0f3ef28d03520d678b7657015b0d2dfacae", size = 24442, upload-time = "2025-01-29T20:44:00.759Z" },
 ]
 
 [[package]]
@@ -765,20 +737,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/4f/98/6549769f158126fa64fd6c1ac2eb59a18282146c939867a3eb31b7c1db07/duckdb-1.5.5-cp312-cp312-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:7a6d2d11859d82a936ebdcb30ce3d8a1cbb3e990bff05c12abb9b54c44fa7bd1", size = 21510909, upload-time = "2026-07-22T10:54:19.681Z" },
     { url = "https://files.pythonhosted.org/packages/af/b7/5753b41d3124838f868f9f523362812d9fc45409e9e4dd70dcbb0a25826e/duckdb-1.5.5-cp312-cp312-win_amd64.whl", hash = "sha256:ddfbdb096c11d51ee22492397d342c90a82e62c5d09961477895934d0a25372f", size = 13168544, upload-time = "2026-07-22T10:54:22.789Z" },
     { url = "https://files.pythonhosted.org/packages/5c/28/44b679c7d46245f8398feae7edac959d1b83d4eb143e25b3fce0630b78bd/duckdb-1.5.5-cp312-cp312-win_arm64.whl", hash = "sha256:2725d2b9ace3a4e75d72fc5a239f6a44b502c580edadb8fb2676db772c5f9282", size = 13988684, upload-time = "2026-07-22T10:54:26.003Z" },
-]
-
-[[package]]
-name = "duckdb-engine"
-version = "0.17.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "duckdb" },
-    { name = "packaging" },
-    { name = "sqlalchemy" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/89/d5/c0d8d0a4ca3ffea92266f33d92a375e2794820ad89f9be97cf0c9a9697d0/duckdb_engine-0.17.0.tar.gz", hash = "sha256:396b23869754e536aa80881a92622b8b488015cf711c5a40032d05d2cf08f3cf", size = 48054, upload-time = "2025-03-29T09:49:17.663Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/2a/a2/e90242f53f7ae41554419b1695b4820b364df87c8350aa420b60b20cab92/duckdb_engine-0.17.0-py3-none-any.whl", hash = "sha256:3aa72085e536b43faab635f487baf77ddc5750069c16a2f8d9c6c3cb6083e979", size = 49676, upload-time = "2025-03-29T09:49:15.564Z" },
 ]
 
 [[package]]
@@ -1636,48 +1594,52 @@ name = "pureflow"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "bandit" },
     { name = "dagster" },
     { name = "dagster-dbt" },
-    { name = "dagster-ge" },
     { name = "dagster-webserver" },
     { name = "dbt-duckdb" },
     { name = "deltalake" },
     { name = "duckdb" },
-    { name = "duckdb-engine" },
     { name = "great-expectations" },
     { name = "pandas" },
+    { name = "python-dotenv" },
+    { name = "pyyaml" },
+    { name = "streamlit" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "bandit" },
     { name = "pre-commit" },
     { name = "pytest" },
-    { name = "python-dotenv" },
     { name = "ruff" },
-    { name = "sqlalchemy" },
     { name = "sqlfluff" },
     { name = "sqlfluff-templater-dbt" },
-    { name = "streamlit" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "bandit", specifier = ">=1.7.0" },
     { name = "dagster", specifier = ">=1.7.0" },
     { name = "dagster-dbt", specifier = ">=0.23.0" },
-    { name = "dagster-ge", specifier = ">=0.23.0" },
     { name = "dagster-webserver", specifier = ">=1.7.0" },
     { name = "dbt-duckdb", specifier = ">=1.7.0" },
     { name = "deltalake", specifier = ">=0.16.0" },
     { name = "duckdb", specifier = ">=1.1.0" },
-    { name = "duckdb-engine", specifier = ">=0.11.0" },
     { name = "great-expectations", specifier = ">=1.1.0" },
     { name = "pandas", specifier = ">=2.2.2" },
+    { name = "python-dotenv", specifier = ">=1.0.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "streamlit", specifier = ">=1.32.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "bandit", specifier = ">=1.7.0" },
     { name = "pre-commit", specifier = ">=3.8.0" },
     { name = "pytest", specifier = ">=8.0.0" },
-    { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "ruff", specifier = ">=0.8.0" },
-    { name = "sqlalchemy", specifier = ">=2.0.0" },
     { name = "sqlfluff", specifier = ">=3.0.0" },
     { name = "sqlfluff-templater-dbt", specifier = ">=3.0.0" },
-    { name = "streamlit", specifier = ">=1.32.0" },
 ]
 
 [[package]]

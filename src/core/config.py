@@ -2,20 +2,39 @@
 
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from core.logger import logger
 
-# Base date for data generation and processing. No fixed date is baked in:
-# falls back to today (at process start) unless BASE_DATE is set explicitly,
-# e.g. to reproduce a specific past run.
-BASE_DATE = os.getenv("BASE_DATE") or datetime.now().strftime("%Y-%m-%d")
+# Timezone every dt= partition is computed in. UTC by default, and stated
+# explicitly: with a naive datetime.now(), the host (-03:00) and the container
+# (UTC) resolved different dates for the same instant, so the pipeline wrote
+# dt=2026-09-21 inside Docker while the dashboard on the host looked for
+# dt=2026-09-20. Override only if the whole stack should partition in local
+# time, and then set it everywhere.
+PIPELINE_TIMEZONE = ZoneInfo(os.getenv("PIPELINE_TIMEZONE", "UTC"))
+
+
+def today() -> str:
+    """Today's partition date, in the pipeline's timezone."""
+    return datetime.now(PIPELINE_TIMEZONE).strftime("%Y-%m-%d")
+
+
+def get_base_date() -> str:
+    """The date to partition by: the BASE_DATE override, or today.
+
+    A function, not a module constant. As a constant it was evaluated once at
+    import, so a long-running Dagster process kept writing yesterday's
+    partition after midnight until it was restarted.
+    """
+    return os.getenv("BASE_DATE") or today()
+
 
 # S3 / MinIO Configuration
 S3_BUCKET_LANDING = os.getenv("S3_BUCKET_LANDING", "landing-zone")
 S3_BUCKET_BRONZE = os.getenv("S3_BUCKET_BRONZE", "bronze")
 S3_BUCKET_SILVER = os.getenv("S3_BUCKET_SILVER", "silver")
 S3_BUCKET_GOLD = os.getenv("S3_BUCKET_GOLD", "gold")
-S3_BUCKET_QUARANTINE = os.getenv("S3_BUCKET_QUARANTINE", "quarantine")
 
 
 def get_s3_connection_config():
@@ -71,21 +90,15 @@ def get_s3_connection_config():
     os.environ["AWS_ENDPOINT_URL"] = s3_endpoint
     os.environ["AWS_REGION"] = "us-east-1"
 
-    # Hints for DuckDB and other tools
-    os.environ["DUCKDB_S3_URL_STYLE"] = "path"
-    os.environ["DUCKDB_S3_USE_SSL"] = "false"
-    os.environ["AWS_S3_ADDRESSING_STYLE"] = "path"
-    os.environ["AWS_S3_PATH_STYLE_ACCESS"] = "true"
-
     clean_endpoint = s3_endpoint.replace("http://", "").replace("https://", "")
 
-    # Deliberately redundant: different tools/libs look for different var names.
-    os.environ["DUCKDB_S3_ENDPOINT"] = clean_endpoint
-    os.environ["DUCKDB_S3_REGION"] = "us-east-1"
-    os.environ["S3_URL_STYLE"] = "path"
-    os.environ["S3_ENDPOINT"] = (
-        clean_endpoint  # DuckDB sometimes looks for this without DUCKDB_ prefix
-    )
+    # This one matters, despite looking redundant: dbt/profiles.yml resolves its own
+    # s3_endpoint from this variable, so the normalization above (localhost ->
+    # 127.0.0.1, or the Docker service name) has to reach dbt too. The DUCKDB_S3_*
+    # and AWS_S3_*_STYLE variables that used to be set here were removed: DuckDB
+    # takes those through SET/CREATE SECRET, never the environment, so nothing
+    # ever read them.
+    os.environ["S3_ENDPOINT"] = clean_endpoint
 
     return {
         "s3_endpoint": clean_endpoint,
@@ -132,9 +145,4 @@ def get_s3_paths(base_date: str):
         "customers_silver": f"s3://{S3_BUCKET_SILVER}/customers/dt={base_date}",
         # Gold (Delta)
         "sales_summary": f"s3://{S3_BUCKET_GOLD}/sales_summary/dt={base_date}",
-        # Quarantine (Failed validation)
-        "sales_quarantine": (f"s3://{S3_BUCKET_QUARANTINE}/sales_erp/dt={base_date}/sales.parquet"),
-        "customers_quarantine": (
-            f"s3://{S3_BUCKET_QUARANTINE}/customers_crm/dt={base_date}/customers.parquet"
-        ),
     }

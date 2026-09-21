@@ -2,7 +2,7 @@ version: 2
 
 sources:
   - name: landing
-    description: "Raw, unvalidated files dropped by the ingestion pipeline. Not part of the Delta lakehouse — the true external boundary."
+    description: "Raw, unvalidated files dropped by the ingestion pipeline. Not part of the Delta lakehouse; it is the true external boundary."
     tables:
       - name: sales_landing
         description: "Raw sales CSV as received from the (simulated) ERP export."

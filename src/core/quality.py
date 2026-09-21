@@ -1,8 +1,8 @@
 """Core Quality Engine: Integrates Great Expectations with DuckDB and S3."""
 
 import os
+from pathlib import Path
 
-import duckdb
 import great_expectations as gx
 import yaml
 from dagster import ConfigurableResource
@@ -11,6 +11,10 @@ from great_expectations.core.expectation_suite import ExpectationSuite
 from core.config import get_s3_connection_config
 from core.logger import logger
 
+# Resolved from this file, not os.getcwd(): the context used to break whenever
+# the process was started from any directory other than the repo root.
+DEFAULT_GX_ROOT = Path(__file__).resolve().parents[2] / "gx"
+
 
 class GreatExpectationsResource(ConfigurableResource):
     """Custom resource to manage Great Expectations context."""
@@ -18,74 +22,87 @@ class GreatExpectationsResource(ConfigurableResource):
     ge_root_dir: str
 
     def get_context(self):
-        """Returns the GX Data Context."""
-        return get_gx_context()
+        """Returns the GX Data Context rooted at this resource's ge_root_dir.
+
+        ge_root_dir used to be declared, set in orchestration.py and then
+        ignored: get_gx_context() resolved "gx" against the current working
+        directory instead. It is honoured now.
+        """
+        return get_gx_context(self.ge_root_dir)
 
 
-# Sets GLOBAL-scope DuckDB S3 defaults once per process, as a fallback for any
-# connection that isn't explicitly configured via ConnectionFactory.setup_s3_auth().
-# Call this once, explicitly, at process startup (see orchestration.py) — it must
-# NOT run as a module-import side effect (that made every import of this module
-# open a live DuckDB/S3 connection, slowing down and destabilizing tests).
-def reinforce_global_s3_config():
-    """Reinforces S3 configuration at the process level for all DuckDB connections."""
-    try:
-        s3_cfg = get_s3_connection_config()
-        logger.debug(
-            "🌍 [Global-Reinforce] Starting reinforcement with endpoint: %s", s3_cfg["s3_endpoint"]
-        )
-        with duckdb.connect() as global_conn:
-            global_conn.execute("INSTALL httpfs; LOAD httpfs;")
-            global_conn.execute("SET GLOBAL s3_url_style = 'path';")
-            global_conn.execute("SET GLOBAL s3_use_ssl = false;")
-            global_conn.execute(f"SET GLOBAL s3_endpoint = '{s3_cfg['s3_endpoint']}';")
+def prime_s3_environment() -> None:
+    """Normalizes the process-wide S3 environment once, at startup.
 
-            # Also create a named secret for extra redundancy with explicit endpoint
-            global_conn.execute(f"""
-                CREATE OR REPLACE SECRET minio_global (
-                    TYPE S3,
-                    KEY_ID '{s3_cfg["s3_access_key_id"]}',
-                    SECRET '{s3_cfg["s3_secret_access_key"]}',
-                    ENDPOINT '{s3_cfg["s3_endpoint"]}',
-                    URL_STYLE 'path',
-                    USE_SSL false,
-                    REGION 'us-east-1',
-                    SCOPE 's3://'
-                );
-            """)
-        logger.info("🌍 [Global-Reinforce] DuckDB environment reinforced.")
-    except Exception as e:
-        logger.warning("⚠️ [Global-Reinforce] Initial reinforcement failed: %s", str(e))
+    Was `reinforce_global_s3_config()`, which also opened a throwaway DuckDB
+    connection to run `SET GLOBAL` and create a named secret. That half was
+    measured against a live MinIO to be a no-op: DuckDB scopes both to the
+    database instance, and every `duckdb.connect(":memory:")` elsewhere in the
+    process gets its own instance, so nothing it configured was ever visible to
+    another connection. An unauthenticated connection failed identically before
+    and after calling it.
 
-
-def get_gx_context():
+    What does carry across the process is the environment. This is still called
+    at import in orchestration.py because dbt/profiles.yml resolves its own
+    endpoint from S3_ENDPOINT, which get_s3_connection_config() normalizes
+    (localhost -> 127.0.0.1, or the Docker service name) before dbt is invoked.
     """
-    Initializes and returns an Ephemeral GX context.
+    cfg = get_s3_connection_config()
+    logger.info("🌍 [S3] Environment primed for endpoint: %s", cfg["s3_endpoint"])
+
+
+def get_gx_context(ge_root_dir: str | os.PathLike | None = None):
+    """Returns an in-memory GX context built from <gx_root>/great_expectations.yml.
+
+    `mode="ephemeral"` is not cosmetic. Without it GX resolves a
+    FileDataContext against gx/, and every asset_check in a run is a separate
+    process adding and deleting datasources in that one on-disk project. They
+    corrupt each other: a process reading great_expectations.yml while another
+    rewrites it dies with a yaml ScannerError, which surfaced as quality gates
+    failing at random on perfectly good data. Ephemeral gives each process its
+    own copy of the config and writes nothing back.
+
+    Two consequences worth knowing:
+    - store paths must be absolute, since an ephemeral context has no root
+      directory to resolve them against. They are normalized below.
+    - `fluent_datasources` is dropped. Every run registers its own uniquely
+      named datasource, so the ones persisted in the file are leftovers from
+      past runs (14 of them had accumulated) and nothing reads them.
+
+    The root is resolved from this file's location, not os.getcwd(), so it no
+    longer depends on which directory the process happened to start in.
     """
-    context_root_dir = os.path.abspath("gx")
-    config_path = os.path.join(context_root_dir, "great_expectations.yml")
-    os.makedirs(os.path.join(context_root_dir, "uncommitted/data_docs"), exist_ok=True)
+    root = Path(ge_root_dir).resolve() if ge_root_dir else DEFAULT_GX_ROOT
+    (root / "uncommitted" / "data_docs").mkdir(parents=True, exist_ok=True)
 
-    with open(config_path, encoding="utf-8") as f:
-        project_config_dict = yaml.safe_load(f) or {}
+    with open(root / "great_expectations.yml", encoding="utf-8") as f:
+        config = yaml.safe_load(f) or {}
 
-    # Path normalization for local vs docker environments
-    for key in ["plugins_directory", "config_variables_file_path"]:
-        if key in project_config_dict:
-            val = project_config_dict[key]
-            if val and not os.path.isabs(val):
-                project_config_dict[key] = os.path.abspath(os.path.join(context_root_dir, val))
-            # Force local path if /app/ prefix found but we are not in docker
-            elif (
-                val
-                and os.path.isabs(val)
-                and val.startswith("/app/gx/")
-                and not os.path.exists("/.dockerenv")
-            ):
-                local_val = val.replace("/app/gx/", "./gx/")
-                project_config_dict[key] = os.path.abspath(os.path.join(os.getcwd(), local_val))
+    def absolutize(value):
+        """Paths in the file may be relative to gx/, or absolute from another machine."""
+        text = str(value).strip()
+        if os.path.isabs(text):
+            # An absolute path baked in elsewhere (e.g. /app/gx/... from Docker)
+            # only resolves here if that directory exists; otherwise re-root it.
+            if Path(text).parent.exists():
+                return text
+            tail = text.split("/gx/", 1)
+            text = tail[1] if len(tail) == 2 else Path(text).name
+        return os.fspath(root / text)
 
-    return gx.get_context(project_config=project_config_dict)
+    for key in ("plugins_directory", "config_variables_file_path"):
+        if config.get(key):
+            config[key] = absolutize(config[key])
+
+    for group in ("stores", "data_docs_sites"):
+        for entry in (config.get(group) or {}).values():
+            backend = entry.get("store_backend", {})
+            if "base_directory" in backend:
+                backend["base_directory"] = absolutize(backend["base_directory"])
+
+    config.pop("fluent_datasources", None)
+
+    return gx.get_context(project_config=config, mode="ephemeral")
 
 
 def get_or_create_suite(context, suite_name):
