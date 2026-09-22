@@ -19,15 +19,16 @@ BUCKETS=(
     "${S3_BUCKET_BRONZE:-bronze}"
     "${S3_BUCKET_SILVER:-silver}"
     "${S3_BUCKET_GOLD:-gold}"
-    "${S3_BUCKET_QUARANTINE:-quarantine}"
 )
 
 echo "🌊 Initializing MinIO buckets at $S3_ENDPOINT..."
 
-# Use the minio/mc docker image to avoid local installation dependency.
+# Use the mc image to avoid a local installation dependency. It comes from
+# quay.io, not Docker Hub: MinIO pulled their images from Hub, so the old
+# `minio/mc` now fails with "pull access denied".
 # --add-host is required on Linux for host.docker.internal to resolve; it's a
 # no-op on Docker Desktop (Mac/Windows), where that hostname already works.
-MC_COMMAND="docker run --rm --add-host=host.docker.internal:host-gateway minio/mc"
+MC_COMMAND="docker run --rm --add-host=host.docker.internal:host-gateway quay.io/minio/mc:latest"
 
 $MC_COMMAND alias set pureflow "$S3_ENDPOINT" "$STORAGE_USER" "$STORAGE_PASSWORD"
 

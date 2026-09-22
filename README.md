@@ -76,8 +76,10 @@ PureFlow/
 ## 🚀 Getting Started
 
 ### 1. Prerequisites
-*   Docker & Docker Compose
-*   [uv](https://docs.astral.sh/uv/getting-started/installation/) (optional, only needed for local development outside Docker, e.g. running pre-commit hooks)
+*   Docker Desktop (or Docker Engine) with **Compose v2**. Every command here uses `docker compose`, the subcommand; the old hyphenated `docker-compose` is not shipped by current Docker Desktop.
+*   [uv](https://docs.astral.sh/uv/getting-started/installation/) (optional, only needed for local development outside Docker, e.g. running tests or pre-commit hooks)
+
+Nothing else. No Python, no compiler, no Xcode Command Line Tools: see **Portability** below for what was verified.
 
 ### 2. Configure Environment
 Copy the example environment file (required, MinIO will fail to start without it):
@@ -85,16 +87,22 @@ Copy the example environment file (required, MinIO will fail to start without it
 cp .env.example .env
 ```
 
-### 3. Launch the Platform
+### 3. Check the machine before launching
 ```bash
-docker-compose up -d --build
+./scripts/doctor.sh
+```
+Verifies the Docker daemon, Compose v2, `.env`, the six published ports and free disk, and exits non-zero if anything is blocking. Worth running before a demo on a machine you have not used for this before.
+
+### 4. Launch the Platform
+```bash
+docker compose up -d --build
 ```
 
-> **Note (Apple Silicon / low-RAM machines):** the DuckDB resource limits (`DUCKDB_MEMORY_LIMIT`, `DUCKDB_THREADS` in `.env`) default to conservative values. If you have more RAM allocated to Docker Desktop, feel free to raise them.
+> **Note (low-RAM machines):** the DuckDB resource limits (`DUCKDB_MEMORY_LIMIT`, `DUCKDB_THREADS` in `.env`) default to conservative values that fit inside Docker Desktop's default VM allocation. Raise them if you have given Docker more.
 
 > **Note (Security):** all published ports are bound to `127.0.0.1`, so the stack is reachable only from the host machine, not from your local network, even though the default MinIO credentials are weak (fine for local dev, never expose these ports beyond localhost).
 
-### 4. Monitoring & Access
+### 5. Monitoring & Access
 | Tool | Endpoint | Description |
 | :--- | :--- | :--- |
 | **Dagster UI** | [http://localhost:3000](http://localhost:3000) | Pipeline Lineage & Execution |
@@ -103,7 +111,7 @@ docker-compose up -d --build
 | **GX Reports** | [http://localhost:8082](http://localhost:8082) | Data Quality HTML Reports |
 | **MinIO Console** | [http://localhost:9001](http://localhost:9001) | S3 Object Browser |
 
-### 5. Run the pipeline
+### 6. Run the pipeline
 The stack starts with empty buckets, so generate a landing zone first. Either use the Dagster UI (Jobs → Launch) or the CLI:
 
 ```bash
@@ -209,6 +217,17 @@ The project implements a mandatory **Quality Gate** before any data reaches the 
 3.  **Validation:** every landing source and every dbt model is gated by **Great Expectations**.
     *   **Metadata:** each check attaches the GX report URL, a `failure_type` (`none` / `data_quality` / `technical`) and, on a data-quality failure, the quarantine path, so the report link survives on the failed check itself.
 4.  **Testing:** `pytest` covers the generators, the quarantine path logic, partition-date resolution, and the gate wiring.
+
+---
+
+## 💻 Portability
+
+The stack runs natively on x86_64 and arm64, Linux, macOS (Intel and Apple Silicon) and Windows via WSL2. Two things were checked rather than assumed:
+
+*   **Every image is multi-arch.** `python:3.12-slim`, `quay.io/minio/minio`, `quay.io/minio/mc` and `ghcr.io/astral-sh/uv` all publish `linux/arm64`, so an Apple Silicon machine builds and runs natively with no QEMU emulation. No `platform:` is pinned anywhere in `docker-compose.yml`, which is what would force emulation.
+*   **Every dependency ships a prebuilt wheel.** Walking `uv.lock` with environment markers resolved for macOS arm64, Linux arm64 and Linux x86_64 gives 126-127 installable packages per platform, of which 107 are pure-Python and the rest have native wheels for that exact platform. Nothing compiles from source, so no toolchain is needed on the host. (`psutil` looks like an exception in the lock, which records only Windows wheels for it; that is correct, since Dagster declares it under `sys_platform == 'win32'` and it is never installed elsewhere.)
+
+The one host-specific script is `scripts/setup_perms.sh`, which fixes bind-mount ownership on Linux and WSL. Docker Desktop on macOS and Windows maps permissions differently, so that script is not needed there and says so.
 
 ---
 
