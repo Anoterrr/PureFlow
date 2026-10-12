@@ -28,3 +28,9 @@ ENV/
 docker-compose.yml
 dockerfile
 .env
+
+# Artigo e documentos do Office
+*.docx
+*.pdf
+~$*
+.~lock.*#

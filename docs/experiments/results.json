@@ -1,7 +1,7 @@
 {
   "meta": {
-    "started_utc": "2026-09-23T13:30:23+00:00",
-    "finished_utc": "2026-09-23T13:42:22+00:00",
+    "started_utc": "2026-10-12T20:22:05+00:00",
+    "finished_utc": "2026-10-12T20:34:32+00:00",
     "machine": "Linux x86_64",
     "python": "3.12.14",
     "duckdb": "1.5.5",
@@ -9,44 +9,44 @@
     "repetitions": 5
   },
   "e1_overhead": {
-    "generation_seconds": 1.036,
+    "generation_seconds": 1.252,
     "a_seconds": [
-      32.868,
-      32.471,
-      32.019,
-      31.756,
-      33.187
+      34.813,
+      33.063,
+      34.174,
+      34.237,
+      32.85
     ],
     "b_seconds": [
-      61.668,
-      60.41,
-      59.864,
-      60.524,
-      61.317
+      61.986,
+      61.592,
+      63.337,
+      62.324,
+      62.671
     ],
-    "a_mean": 32.46,
-    "a_stdev": 0.59,
-    "b_mean": 60.76,
-    "b_stdev": 0.73,
-    "overhead_seconds": 28.3,
-    "overhead_pct": 87.2,
+    "a_mean": 33.83,
+    "a_stdev": 0.84,
+    "b_mean": 62.38,
+    "b_stdev": 0.67,
+    "overhead_seconds": 28.55,
+    "overhead_pct": 84.4,
     "b_runs_all_gates_passed": true,
     "a_step_mean_seconds": {
-      "dbt_bronze": 5.45,
-      "dbt_gold": 4.21,
-      "dbt_silver": 5.03
+      "dbt_bronze": 5.76,
+      "dbt_gold": 4.3,
+      "dbt_silver": 5.25
     },
     "b_step_mean_seconds": {
-      "customers_landing": 1.93,
-      "customers_silver_check_customers_silver_target": 1.95,
-      "dbt_bronze": 5.49,
-      "dbt_gold": 4.26,
-      "dbt_silver": 5.21,
-      "sales_landing": 2.16,
-      "sales_silver_check_sales_silver_target": 2.12,
-      "sales_summary_check_sales_summary": 1.59,
-      "stg_customers_bronze_check_stg_customers_bronze_target": 1.81,
-      "stg_sales_bronze_check_stg_sales_bronze_target": 1.98
+      "customers_landing": 2.4,
+      "customers_silver_check_customers_silver_target": 2.33,
+      "dbt_bronze": 5.71,
+      "dbt_gold": 4.27,
+      "dbt_silver": 5.15,
+      "sales_landing": 2.74,
+      "sales_silver_check_sales_silver_target": 2.59,
+      "sales_summary_check_sales_summary": 2.02,
+      "stg_customers_bronze_check_stg_customers_bronze_target": 2.35,
+      "stg_sales_bronze_check_stg_sales_bronze_target": 2.48
     },
     "layers": {
       "bronze": {
@@ -81,35 +81,35 @@
       "injected": {
         "sales_rows": 5000,
         "sales_id_null": 51,
-        "sales_price_negative": 468,
+        "sales_price_negative": 428,
         "sales_product_null": 0,
         "customers_rows": 1000,
         "customers_id_null": 11,
         "customers_email_invalid": 0
       },
       "A": {
-        "seconds": 30.132,
+        "seconds": 31.001,
         "success": true,
         "failed_steps": [],
         "step_seconds": {
-          "dbt_bronze": 4.54,
+          "dbt_bronze": 4.58,
           "dbt_silver": 4.23,
-          "dbt_gold": 4.07
+          "dbt_gold": 4.11
         },
         "date": "2030-02-01",
         "layers": {
           "bronze": {
             "sales_rows": 5000,
             "sales_id_null": 51,
-            "sales_price_negative": 468,
+            "sales_price_negative": 428,
             "sales_product_null": 0,
             "customers_rows": 1000,
             "customers_id_null": 11,
             "customers_email_invalid": 0
           },
           "silver": {
-            "sales_rows": 4532,
-            "sales_id_null": 43,
+            "sales_rows": 4572,
+            "sales_id_null": 50,
             "sales_price_negative": 0,
             "sales_product_null": 0,
             "customers_rows": 1000,
@@ -118,14 +118,14 @@
           },
           "gold": {
             "rows": 6,
-            "orders": 4489,
-            "orders_without_region": 53
+            "orders": 4522,
+            "orders_without_region": 57
           }
         },
         "quarantined": {}
       },
       "B": {
-        "seconds": 11.412,
+        "seconds": 12.028,
         "success": false,
         "failed_steps": [
           "customers_landing",
@@ -157,13 +157,13 @@
         "customers_email_invalid": 50
       },
       "A": {
-        "seconds": 30.844,
+        "seconds": 31.398,
         "success": true,
         "failed_steps": [],
         "step_seconds": {
-          "dbt_bronze": 4.47,
-          "dbt_silver": 4.2,
-          "dbt_gold": 4.06
+          "dbt_bronze": 4.57,
+          "dbt_silver": 4.25,
+          "dbt_gold": 4.1
         },
         "date": "2030-03-01",
         "layers": {
@@ -194,7 +194,7 @@
         "quarantined": {}
       },
       "B": {
-        "seconds": 11.533,
+        "seconds": 11.993,
         "success": false,
         "failed_steps": [
           "customers_landing",
@@ -226,13 +226,13 @@
         "customers_email_invalid": 0
       },
       "A": {
-        "seconds": 30.533,
+        "seconds": 31.35,
         "success": true,
         "failed_steps": [],
         "step_seconds": {
-          "dbt_bronze": 4.47,
-          "dbt_silver": 4.22,
-          "dbt_gold": 4.05
+          "dbt_bronze": 4.52,
+          "dbt_silver": 4.37,
+          "dbt_gold": 4.35
         },
         "date": "2030-04-01",
         "layers": {
@@ -263,16 +263,16 @@
         "quarantined": {}
       },
       "B": {
-        "seconds": 26.734,
+        "seconds": 28.5,
         "success": false,
         "failed_steps": [
           "stg_sales_bronze_check_stg_sales_bronze_target"
         ],
         "step_seconds": {
-          "customers_landing": 1.65,
-          "sales_landing": 1.7,
-          "dbt_bronze": 4.42,
-          "stg_customers_bronze_check_stg_customers_bronze_target": 1.83
+          "customers_landing": 2.17,
+          "sales_landing": 2.23,
+          "dbt_bronze": 4.53,
+          "stg_customers_bronze_check_stg_customers_bronze_target": 2.16
         },
         "date": "2030-04-02",
         "layers": {
@@ -306,14 +306,14 @@
         "customers_email_invalid": 0
       },
       "B": {
-        "seconds": 16.129,
+        "seconds": 16.454,
         "success": false,
         "failed_steps": [
           "stg_customers_bronze_check_stg_customers_bronze_target",
           "stg_sales_bronze_check_stg_sales_bronze_target"
         ],
         "step_seconds": {
-          "inject_corrupt_bronze": 0.214
+          "inject_corrupt_bronze": 0.234
         },
         "date": "2030-01-01",
         "quarantined": {
