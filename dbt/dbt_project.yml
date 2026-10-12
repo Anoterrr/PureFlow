@@ -15,6 +15,16 @@ vars:
   # Centralized execution date: overridable via EXECUTION_DATE, otherwise
   # defaults to this dbt invocation's own start time. No fixed date is baked in.
   execution_date: '{{ env_var("EXECUTION_DATE", run_started_at.strftime("%Y-%m-%d")) }}'
+  # Same S3_BUCKET_* variables core/config.py reads, so the dbt models and the
+  # quality gates can never point at different buckets.
+  bronze_bucket: '{{ env_var("S3_BUCKET_BRONZE", "bronze") }}'
+  silver_bucket: '{{ env_var("S3_BUCKET_SILVER", "silver") }}'
+  gold_bucket: '{{ env_var("S3_BUCKET_GOLD", "gold") }}'
+
+# One dbt invocation per layer means the upstream layer is not in this run's
+# in-memory catalog; register it as views over its Delta tables first.
+on-run-start:
+  - "{{ register_upstream_delta_models() }}"
 
 clean-targets:
   - "target"

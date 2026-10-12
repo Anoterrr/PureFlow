@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 
+from core.config import S3_BUCKET_GOLD
 from core.connection import ConnectionFactory
 
 # Only load .env if variables are not already set (prevents overriding Docker env with localhost)
@@ -48,11 +49,11 @@ def load_gold_data():
     """Loads the most recently written Gold sales summary Delta partition."""
     conn = get_duckdb_conn()
 
-    latest_date = get_latest_partition_date(conn, "gold", "sales_summary")
+    latest_date = get_latest_partition_date(conn, S3_BUCKET_GOLD, "sales_summary")
     if latest_date is None:
         return pd.DataFrame(), None
 
-    gold_path = f"s3://gold/sales_summary/dt={latest_date}/"
+    gold_path = f"s3://{S3_BUCKET_GOLD}/sales_summary/dt={latest_date}/"
     try:
         return conn.execute("SELECT * FROM delta_scan(?)", [gold_path]).df(), latest_date
     except Exception as e:

@@ -120,3 +120,14 @@ def test_orchestration_builds_its_gates_from_the_tables():
             f"orchestration.py no longer builds its gates from {table} - the "
             f"table would become documentation that nothing enforces"
         )
+
+
+def test_dbt_models_take_their_bucket_from_the_environment():
+    """core.config reads S3_BUCKET_*; a model with a literal bucket drifts from the gates."""
+    hardcoded = [
+        p.relative_to(REPO_ROOT).as_posix()
+        for p in DBT_MODELS_DIR.rglob("*.sql")
+        for bucket in ("bronze", "silver", "gold")
+        if f'"s3://{bucket}/' in p.read_text(encoding="utf-8")
+    ]
+    assert not hardcoded, f"models with a hard-coded bucket: {hardcoded}"

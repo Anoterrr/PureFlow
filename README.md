@@ -11,7 +11,7 @@ The project is built on **Clean Architecture** and **SOLID** principles, ensurin
 
 ### 1. Medallion Layers (S3-Native, Delta everywhere)
 Data evolves through progressive layers in **MinIO (S3)**:
-*   **Landing (Raw):** Source files (CSV/JSON) in their original format. It is the only layer that isn't Delta; it's the true external boundary, read by dbt via `meta.external_location` sources.
+*   **Landing (Raw):** Source files (CSV/JSON) in their original format. It is the only layer that isn't Delta; it's the true external boundary, read by dbt through sources that point at a small read plugin (`meta.plugin: landing_read` + `meta.path_template`, see `src/dbt_plugins/landing_source.py`).
 *   **Bronze (Standardized):** Schema-enforced Delta tables, produced by dbt models.
 *   **Silver (Validated & Clean):** High-quality Delta tables after **Great Expectations** gates and SQL transformations, chained via `ref()`.
 *   **Gold (Business Ready):** Aggregated Delta tables managed by **dbt**, ready for BI consumption.
@@ -21,9 +21,13 @@ dbt-duckdb doesn't write Delta natively (its bundled `delta` plugin only reads),
 ### 2. Quality Gates (Great Expectations)
 Every domain gets two circuit breakers around its dbt models. Both are **declared as data** in `src/core/gates.py` (`SOURCE_GATES` / `TARGET_GATES`) and built into Dagster assets and checks by `src/orchestration.py`, so a gate is one table entry rather than a hand-written block:
 *   **Pre-flight (source):** a Dagster asset (e.g. `sales_landing`) validates the raw landing file *before* the Bronze dbt model reads it. It matches the corresponding dbt `source()` by name, so it is a real upstream dependency in the asset graph. Raises and quarantines on failure, blocking Bronze from ever reading bad input.
-*   **Post-write (target):** a Dagster `@asset_check` per model (`check_stg_sales_bronze_target`, `check_sales_silver_target`, ...) validates the model's output right after it is written, quarantining and failing the check (`blocking=True`) on failure.
+*   **Post-write (target):** a Dagster `@asset_check` per model (`check_stg_sales_bronze_target`, `check_sales_silver_target`, ...) validates the model's output right after it is written and quarantines it on failure. The Bronze and Silver checks are blocking: the next layer is not built until they pass. The Gold check is not, since nothing in the pipeline consumes Gold.
 
-Quarantined data is copied, never moved, to `s3://<source-bucket>/quarantine/dt=<date>/reason=<gate>/` so the offending records stay inspectable. A failure that is *technical* (storage unreachable, GX misconfigured) raises `ValidationTechnicalError` and is reported as `failure_type: technical` **without** quarantining: a gate that could not read the data has no basis to condemn it.
+Blocking only works across ops. Dagster ignores dependencies inside a single multi-asset, so if one `dbt run` built every layer, Bronze, Silver and Gold would all be written before any check ran. `src/orchestration.py` therefore builds **one dbt op per layer** (`dbt_bronze` → checks → `dbt_silver` → checks → `dbt_gold`), and `tests/test_orchestration_wiring.py` fails if that split is undone. Blocking is per layer: a failing check on either Bronze table holds back the whole Silver layer.
+
+Each of those dbt invocations starts on a fresh in-memory DuckDB, so a `ref()` to the previous layer would find nothing in the catalog. An `on-run-start` hook, `dbt/macros/register_upstream_delta_models.sql`, first registers every upstream model as a view over its Delta table, which means the next layer reads exactly the table its gate validated.
+
+Quarantined data is copied, never moved, to `s3://<source-bucket>/quarantine/dt=<date>/reason=<gate>/` so the offending records stay inspectable. For a post-write gate this means the failing table is still in its layer; what the gate prevents is the *next* layer being built from it. A failure that is *technical* (storage unreachable, GX misconfigured) raises `ValidationTechnicalError` and quarantines nothing, because a gate that could not read the data has no basis to condemn it. A post-write check reports it as `failure_type: technical`; a pre-flight gate fails its step with the error.
 
 Each breaker has its own demo job, since a single run cannot show both: corrupt landing halts the pipeline before dbt ever materializes Bronze:
 
@@ -34,11 +38,11 @@ Each breaker has its own demo job, since a single run cannot show both: corrupt 
 
 ### 3. Adding a New Pipeline
 To wire up a new domain (e.g. `products`), only dbt files are needed, with no Python registration step:
-1.  **A source** for the raw landing file, in a `sources.yml` under `dbt/models/`, using `meta.external_location` (see `dbt/models/landing/sources.yml`).
-2.  **Bronze/Silver models**: `.sql` files under `dbt/models/products/bronze/` and `.../silver/`, following the pattern in `dbt/models/sales/`: `{{ config(delta_table_path=..., location=...) }}` at the top, `{{ source(...) }}`/`{{ ref(...) }}` in the `FROM` clause.
+1.  **A source** for the raw landing file, in a `sources.yml` under `dbt/models/`, with `meta.plugin: landing_read` and a `meta.path_template` (see `dbt/models/landing/sources.yml`).
+2.  **Bronze/Silver models**: `.sql` files under `dbt/models/products/bronze/` and `.../silver/`, following the pattern in `dbt/models/sales/`: `{{ config(delta_table_path=..., location=...) }}` at the top (bucket from `var('bronze_bucket')` etc.), `{{ source(...) }}`/`{{ ref(...) }}` in the `FROM` clause. The folder name is what matters: each layer's op selects `fqn:*.<layer>.*`.
 3.  *(Optional)* Quality gates: add a `SourceGate` and/or `TargetGate` entry to `src/core/gates.py`. No Python wiring: `orchestration.py` builds the asset and the `@asset_check` from the table, and `tests/test_asset_check_wiring.py` fails the build if the entry points at a model, source or S3 path key that does not exist.
 
-Dropping the model files in is enough for Dagster to pick them up. `pureflow_dbt_assets` (`src/orchestration.py`) discovers every model from the dbt manifest automatically, no per-domain Python wiring.
+Dropping the model files in is enough for Dagster to pick them up. The per-layer dbt ops in `src/orchestration.py` (`dbt_bronze`, `dbt_silver`, `dbt_gold`) discover every model from the dbt manifest by folder, no per-domain Python wiring.
 
 ---
 
@@ -60,14 +64,23 @@ Dropping the model files in is enough for Dagster to pick them up. `pureflow_dbt
 ```text
 PureFlow/
 ├── .github/workflows/      # CI/CD DataOps Pipelines
-├── dbt/                    # dbt Project (Bronze/Silver/Gold models, all Delta)
+├── dbt/                    # dbt Project (Bronze/Silver/Gold models, all Delta;
+│                           # macros/ registers the upstream layer between invocations)
+├── gx/                     # Great Expectations config; HTML reports land in gx/uncommitted/
+├── dagster_home/           # Dagster instance config (SQLite run storage)
+├── docs/
+│   ├── experiments/        # results.json from scripts/run_experiments.py + chart script
+│   └── arquitetura_pt.py   # Architecture figure used in the article
+├── scripts/                # doctor.sh, MinIO/permission setup, run_experiments.py
 ├── src/
 │   ├── core/               # gates.py (declarative quality gates), config/paths,
 │   │                       # connection, quarantine engine, GX context
-│   ├── dbt_plugins/        # Custom dbt-duckdb plugin: writes Delta via delta-rs
+│   ├── dbt_plugins/        # dbt-duckdb plugins: Delta writes (delta-rs), landing reads
+│   ├── utils/              # Synthetic data generators (clean, dirty, corruptors)
 │   ├── validation/         # Generic GX Validation Wrapper
-│   └── orchestration.py    # Dagster Entrypoint, dbt asset wiring & quality-gate assets
-├── tests/                  # Unit tests for core logic and generators
+│   ├── dashboard.py        # Streamlit dashboard over the latest Gold partition
+│   └── orchestration.py    # Dagster Entrypoint, per-layer dbt ops & quality gates
+├── tests/                  # Unit tests for core logic, generators and gate wiring
 └── pyproject.toml          # Centralized Project Metadata & Config
 ```
 
@@ -123,7 +136,8 @@ docker compose exec dagster dagster job execute -f /app/src/orchestration.py -j 
 | :--- | :--- |
 | `data_generation_job` | Writes a **clean** landing zone (1M sales, 100k customers). Run this first. |
 | `dirty_data_generation_job` | Writes a **dirty** landing zone instead. Separate job on purpose: both generators write the same paths, so selecting them together would race. |
-| `pureflow_pipeline_job` | The pipeline itself: pre-flight gates → dbt (Bronze/Silver/Gold as Delta) → post-write gates. |
+| `pureflow_pipeline_job` | The pipeline itself: pre-flight gates → dbt Bronze → Bronze gates → dbt Silver → Silver gates → dbt Gold → Gold check. |
+| `baseline_no_gates_job` | The same dbt ops with every gate removed. Only used as the baseline (Scenario A) in `scripts/run_experiments.py`. |
 | `quality_test_landing_job` | Demo of the pre-flight breaker (expected to fail). |
 | `quality_test_bronze_job` | Demo of the post-write breaker (expected to fail). Run after a clean `pureflow_pipeline_job`. |
 
@@ -138,28 +152,30 @@ The project architecture and interface previews:
 
 ```mermaid
 flowchart TD
-    DAGSTER["🎛️ Dagster: asset orchestration & quality-gate wiring"]
-    DBT["🧩 dbt models on DuckDB<br/>every layer written as Delta via a custom delta-rs plugin"]
+    DAGSTER["🎛️ Dagster: asset orchestration, runs the gates and halts the flow on failure"]
+    DBT["🧩 dbt on DuckDB: one op per layer<br/>every layer written as Delta via a custom delta-rs plugin"]
 
     DAGSTER --> DBT --> LAND
 
     subgraph S3["🪣 MinIO / S3: object storage"]
         direction LR
         LAND[("Landing Zone<br/>raw CSV / JSON<br/>external boundary")]
-        GXPRE{{"GX pre-flight"}}
+        GXPRE{{"GX pre-flight<br/>blocking"}}
         BRONZE[("🥉 Bronze<br/>Delta table<br/>schema-enforced")]
-        GXB{{"GX check"}}
+        GXB{{"GX post-write<br/>blocking"}}
         SILVER[("🥈 Silver<br/>Delta table<br/>validated + enriched")]
-        GXS{{"GX check"}}
+        GXS{{"GX post-write<br/>blocking"}}
         GOLD[("🥇 Gold<br/>Delta table<br/>sales_summary")]
+        GXG{{"GX post-write<br/>non-blocking"}}
 
-        LAND --> GXPRE --> BRONZE --> GXB --> SILVER --> GXS --> GOLD
+        LAND --> GXPRE --> BRONZE --> GXB --> SILVER --> GXS --> GOLD --> GXG
     end
 
-    QUARANTINE[("🚧 Quarantine<br/>s3://bucket/quarantine/dt=.../reason=...")]
-    GXPRE -. on failure .-> QUARANTINE
-    GXB -. on failure .-> QUARANTINE
-    GXS -. on failure .-> QUARANTINE
+    QUARANTINE[("🚧 Quarantine (copy)<br/>s3://&lt;bucket&gt;/quarantine/dt=.../reason=...")]
+    GXPRE -. fail: copy + halt .-> QUARANTINE
+    GXB -. fail: copy + halt .-> QUARANTINE
+    GXS -. fail: copy + halt .-> QUARANTINE
+    GXG -. fail: copy .-> QUARANTINE
 
     GOLD --> STREAMLIT["📊 Streamlit Dashboard<br/>reads latest Gold partition"]
     GOLD --> DBTDOCS["📖 dbt Docs<br/>model lineage & catalog"]
@@ -172,7 +188,7 @@ flowchart TD
     classDef quarantine fill:#fde0e0,stroke:#b22222,color:#333;
     classDef outputs fill:#dbe9ff,stroke:#2255aa,color:#333;
 
-    class GXPRE,GXB,GXS gate;
+    class GXPRE,GXB,GXS,GXG gate;
     class BRONZE bronze;
     class SILVER silver;
     class GOLD gold;
@@ -182,11 +198,11 @@ flowchart TD
 
 ### 🚀 Dagster UI (Orchestration)
 ![Dagster UI](docs/dagster_ui.png)
-*Preview of the asset-based orchestration, lineage, and Metadata Plots.*
+*The `pureflow_pipeline_job` asset graph, grouped by layer: the landing pre-flight gates feed Bronze, then Silver, then Gold.*
 
 ### 🧪 Data Quality Reports (GX)
 ![GX Reports](docs/gx_report_ui.png)
-*Detailed HTML reports generated by Great Expectations, served via HTTP.*
+*Validation results from Great Expectations, one row per gate run, served on port 8082. Each row opens the full report for that batch.*
 
 ### 📖 dbt Documentation
 ![dbt Docs](docs/dbt_docs_ui.png)
@@ -194,7 +210,11 @@ flowchart TD
 
 ### 📦 MinIO Console (S3 Storage)
 ![MinIO Console](docs/minio_ui.png)
-*S3-compatible storage browser showing the medallion buckets.*
+*S3-compatible storage browser: one bucket per layer, with the `quarantine/` prefix next to the tables in the bucket it guards.*
+
+### 📊 Streamlit Dashboard (Gold)
+![Streamlit Dashboard](docs/streamlit_ui.png)
+*Business metrics read straight from the latest Gold Delta partition with DuckDB.*
 
 ---
 
@@ -211,12 +231,15 @@ uv run pytest tests/
 
 ## 🛡️ DataOps & Quality Control
 
-The project implements a mandatory **Quality Gate** before any data reaches the Silver/Gold layers. Locally, this gate runs as a **pre-commit** hook (`uv run pre-commit run --all-files` to run it on demand); in CI, the exact same hooks run via GitHub Actions so there's zero drift between what you see locally and what blocks a PR.
-1.  **Linting & Formatting:** `ruff` (lint + format) and `sqlfluff` ensure Python and SQL standards.
-2.  **Security:** `bandit` scans for vulnerabilities in the code.
-3.  **Validation:** every landing source and every dbt model is gated by **Great Expectations**.
-    *   **Metadata:** each check attaches the GX report URL, a `failure_type` (`none` / `data_quality` / `technical`) and, on a data-quality failure, the quarantine path, so the report link survives on the failed check itself.
-4.  **Testing:** `pytest` covers the generators, the quarantine path logic, partition-date resolution, and the gate wiring.
+Two different gates, easy to confuse:
+
+**Code gate (before a change is merged).** Runs locally as a **pre-commit** hook on every commit (`uv run pre-commit run --all-files` to run it on demand) and again in GitHub Actions on every push and pull request, with the same hooks, so what passes locally is what passes in CI.
+1.  **Linting & Formatting:** `ruff` (lint + format) and `sqlfluff` (dbt SQL).
+2.  **Security:** `bandit` scans `src/`.
+3.  **Testing:** `pytest` runs in CI only (`uv run pytest tests/` locally). It covers the generators, the quarantine path logic, partition-date resolution, the gate wiring and the per-layer dbt split.
+4.  **Dockerfile:** `hadolint`, in CI.
+
+**Data gate (while the pipeline runs).** Every landing source and every dbt model is validated by **Great Expectations**, as described in *Quality Gates* above. Each check attaches the GX report URL, a `failure_type` (`none` / `data_quality` / `technical`) and, on a data-quality failure, the quarantine path, so the report link survives on the failed check itself.
 
 ---
 
@@ -225,9 +248,21 @@ The project implements a mandatory **Quality Gate** before any data reaches the 
 The stack runs natively on x86_64 and arm64, Linux, macOS (Intel and Apple Silicon) and Windows via WSL2. Two things were checked rather than assumed:
 
 *   **Every image is multi-arch.** `python:3.12-slim`, `quay.io/minio/minio`, `quay.io/minio/mc` and `ghcr.io/astral-sh/uv` all publish `linux/arm64`, so an Apple Silicon machine builds and runs natively with no QEMU emulation. No `platform:` is pinned anywhere in `docker-compose.yml`, which is what would force emulation.
-*   **Every dependency ships a prebuilt wheel.** Walking `uv.lock` with environment markers resolved for macOS arm64, Linux arm64 and Linux x86_64 gives 126-127 installable packages per platform, of which 107 are pure-Python and the rest have native wheels for that exact platform. Nothing compiles from source, so no toolchain is needed on the host. (`psutil` looks like an exception in the lock, which records only Windows wheels for it; that is correct, since Dagster declares it under `sys_platform == 'win32'` and it is never installed elsewhere.)
+*   **Every dependency ships a prebuilt wheel.** Walking `uv.lock` with environment markers resolved for macOS arm64, Linux arm64 and Linux x86_64 gives 126-127 installable packages per platform, of which 107 are pure-Python and the rest have native wheels for that exact platform. (`psutil` looks like an exception in the lock, which records only Windows wheels for it; that is correct, since Dagster declares it under `sys_platform == 'win32'` and it is never installed elsewhere.)
 
 The one host-specific script is `scripts/setup_perms.sh`, which fixes bind-mount ownership on Linux and WSL. Docker Desktop on macOS and Windows maps permissions differently, so that script is not needed there and says so.
+
+---
+
+## 🔬 Experiments
+
+The numbers in the article come from `scripts/run_experiments.py`, which runs inside the Dagster container with the stack up:
+
+```bash
+docker compose exec dagster python /app/scripts/run_experiments.py
+```
+
+It compares `baseline_no_gates_job` (A) with `pureflow_pipeline_job` (B) on a clean dataset (timing, 5 interleaved runs after a warm-up) and on four defective ones (detection and propagation, counted straight from the Delta tables). Results go to `docs/experiments/results.json`; `docs/experiments/grafico_tempo.py` draws the timing chart from it. Every partition the script writes is deleted at the end.
 
 ---
 
@@ -237,6 +272,7 @@ Design boundaries accepted on purpose. These are not bugs, but they are worth st
 *   **Single-node processing:** DuckDB is an embedded, single-machine OLAP engine (not distributed). Fine for the dataset sizes this project targets; a production-scale lakehouse would need Spark/Trino-class distributed processing.
 *   **Dagster metadata storage:** run/event history is stored in local SQLite (`dagster_home/dagster.yaml`), which is appropriate for a single dev/demo instance but not for multi-user or HA deployments (Dagster supports Postgres for that).
 *   **Partition date is resolved per step, not per run:** every asset resolves `dt=` independently from `core.config.today()` (UTC by default, see `PIPELINE_TIMEZONE`). A run that crosses midnight can therefore materialize one partition and validate another. Pin `execution_date_resource.date` in the run config for a backfill or a demo started near midnight.
+*   **Batch-level, layer-level gates:** one bad record fails the whole file or table, and a failing check on either Bronze table holds back the whole Silver layer. Per-record quarantine would let the valid part through, at the cost of more complexity.
 *   **GX validation loads data into Pandas:** `validate_data()` (`src/validation/gx_validator.py`) pulls the full batch into memory via DuckDB → Pandas before validating. Works well at this project's scale (~1M rows with the default 4GB DuckDB memory limit); a larger dataset would need GX's SQL-native execution engine instead of the Pandas one.
 
 ---

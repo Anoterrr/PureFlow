@@ -137,10 +137,17 @@ services:
       - "127.0.0.1:8081:8081"
       - "127.0.0.1:8082:8082"
     # Port 8081 for dbt, 8082 for GX Reports
+    # A full `docs generate` compiles the models, which reads today's landing
+    # partition. On any day the pipeline has not run yet that partition does not
+    # exist, generate aborted, and the container exited, taking the GX report
+    # server down with it. The fallback builds the docs from the parsed manifest
+    # alone (lineage and descriptions, no compiled SQL or column types).
     command: >
       bash -c "python3 -m http.server 8082 --directory /app/gx/uncommitted/data_docs/local_site &
                cd /app/dbt &&
-               dbt docs generate --profiles-dir . --profile pureflow &&
+               dbt parse --profiles-dir . --profile pureflow &&
+               (dbt docs generate --profiles-dir . --profile pureflow ||
+                dbt docs generate --no-compile --empty-catalog --profiles-dir . --profile pureflow) &&
                dbt docs serve --profiles-dir . --profile pureflow --port 8081 --host 0.0.0.0"
     depends_on:
       dagster:

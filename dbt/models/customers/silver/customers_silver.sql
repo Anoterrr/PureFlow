@@ -1,6 +1,6 @@
 {{ config(
-    delta_table_path="s3://silver/customers/dt=" ~ var('execution_date'),
-    location="s3://silver/_stage/customers_silver/dt=" ~ var('execution_date') ~ ".parquet"
+    delta_table_path="s3://" ~ var('silver_bucket') ~ "/customers/dt=" ~ var('execution_date'),
+    location="s3://" ~ var('silver_bucket') ~ "/_stage/customers_silver/dt=" ~ var('execution_date') ~ ".parquet"
 ) }}
 
 SELECT

@@ -32,3 +32,34 @@ def test_orchestration_wires_dbt_assets_from_manifest():
         "manifest.json. Without it, models added under dbt/models/ are never registered "
         "with Dagster"
     )
+
+
+def test_dbt_runs_one_op_per_medallion_layer():
+    """A blocking check only holds back assets computed by a *different* op.
+
+    With one @dbt_assets covering the whole project, Bronze, Silver and Gold
+    were written by the same `dbt run` before any post-write check ran, so the
+    blocking Bronze/Silver gates blocked nothing. Each layer must be its own op.
+    """
+    source = ORCHESTRATION_PATH.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    layers = next(
+        (
+            tuple(e.value for e in node.value.elts)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Assign)
+            and any(getattr(t, "id", None) == "DBT_LAYERS" for t in node.targets)
+        ),
+        (),
+    )
+    assert layers == ("bronze", "silver", "gold"), f"DBT_LAYERS is {layers}"
+
+    selects = [
+        kw
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "dbt_assets"
+        for kw in node.keywords
+        if kw.arg == "select"
+    ]
+    assert selects, "@dbt_assets has no select=, so a single op runs every layer again"

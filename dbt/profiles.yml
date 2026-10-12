@@ -8,15 +8,30 @@ pureflow:
       extensions:
         - httpfs
         - json
+        - delta
       plugins:
         - module: dbt_plugins.delta_write
           alias: delta_rw
         - module: dbt_plugins.landing_source
           alias: landing_read
+      # Same limits ConnectionFactory applies, so the dbt models run under the
+      # DUCKDB_MEMORY_LIMIT / DUCKDB_THREADS set in .env like everything else.
       settings:
+        memory_limit: "{{ env_var('DUCKDB_MEMORY_LIMIT', '4GB') }}"
+        threads: "{{ env_var('DUCKDB_THREADS', '2') }}"
         s3_endpoint: "{{ env_var('S3_ENDPOINT', '127.0.0.1:9000') | replace('http://', '') }}"
         s3_access_key_id: "{{ env_var('STORAGE_USER', 'admin') }}"
         s3_secret_access_key: "{{ env_var('STORAGE_PASSWORD', 'strongpassword123') }}"
         s3_use_ssl: false
         s3_url_style: "path"
+      # delta_scan() only authenticates through a secret, not the SET-style
+      # settings above; register_upstream_delta_models() reads Delta with it.
+      secrets:
+        - type: s3
+          key_id: "{{ env_var('STORAGE_USER', 'admin') }}"
+          secret: "{{ env_var('STORAGE_PASSWORD', 'strongpassword123') }}"
+          endpoint: "{{ env_var('S3_ENDPOINT', '127.0.0.1:9000') | replace('http://', '') }}"
+          region: us-east-1
+          url_style: path
+          use_ssl: false
   target: dev

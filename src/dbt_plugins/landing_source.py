@@ -9,18 +9,22 @@ stay in sync with the --vars execution_date the .sql models use).
 """
 
 import os
-from datetime import datetime
 
 from dbt.adapters.duckdb.plugins import BasePlugin
 from dbt.adapters.duckdb.utils import SourceConfig
 
+from core.config import S3_BUCKET_LANDING, get_base_date
 from core.connection import ConnectionFactory
 
 
 class Plugin(BasePlugin):
     def load(self, source_config: SourceConfig):
-        execution_date = os.environ.get("EXECUTION_DATE") or datetime.now().strftime("%Y-%m-%d")
-        path = source_config["path_template"].format(execution_date=execution_date)
+        # Falls back the same way every other component does (BASE_DATE, then today
+        # in PIPELINE_TIMEZONE); a naive datetime.now() could land on another day.
+        execution_date = os.environ.get("EXECUTION_DATE") or get_base_date()
+        path = source_config["path_template"].format(
+            landing_bucket=S3_BUCKET_LANDING, execution_date=execution_date
+        )
 
         conn = ConnectionFactory.get_duckdb_conn(":memory:")
         ConnectionFactory.setup_s3_auth(conn)

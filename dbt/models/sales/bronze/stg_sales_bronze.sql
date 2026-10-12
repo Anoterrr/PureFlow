@@ -1,6 +1,6 @@
 {{ config(
-    delta_table_path="s3://bronze/sales_erp/dt=" ~ var('execution_date') ~ "/stg_sales_bronze",
-    location="s3://bronze/_stage/stg_sales_bronze/dt=" ~ var('execution_date') ~ ".parquet"
+    delta_table_path="s3://" ~ var('bronze_bucket') ~ "/sales_erp/dt=" ~ var('execution_date') ~ "/stg_sales_bronze",
+    location="s3://" ~ var('bronze_bucket') ~ "/_stage/stg_sales_bronze/dt=" ~ var('execution_date') ~ ".parquet"
 ) }}
 
 SELECT

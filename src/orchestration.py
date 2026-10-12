@@ -59,23 +59,43 @@ class PureFlowDbtTranslator(DagsterDbtTranslator):
         return super().get_group_name(dbt_resource_props)
 
 
-@dbt_assets(
-    manifest=DBT_PROJECT_DIR.joinpath("target", "manifest.json"),
-    dagster_dbt_translator=PureFlowDbtTranslator(),
-)
-def pureflow_dbt_assets(
-    context, dbt: DbtCliResource, execution_date_resource: ExecutionDateResource
-):
-    """Bronze/Silver/Gold: every dbt model, materialized as Delta via the delta_rw plugin."""
-    execution_date = execution_date_resource.resolved_date
-    # The landing_read plugin (dbt_plugins/landing_source.py) can't see dbt's --vars
-    # (it only Jinja-renders .sql, not sources.yml meta), so it reads this env var
-    # directly, so it is set here to keep both resolution paths in agreement.
-    os.environ["EXECUTION_DATE"] = execution_date
-    yield from dbt.cli(
-        ["run", "--vars", f"execution_date: {execution_date}"],
-        context=context,
-    ).stream()
+# One dbt invocation per medallion layer, not one for the whole project. A
+# blocking @asset_check only holds back assets computed by a *different* op:
+# Dagster ignores dependencies inside a single multi-asset. With a single
+# `dbt run`, Bronze, Silver and Gold were all written before any post-write
+# check ran, so a failing Bronze check blocked nothing. Split per layer, each
+# layer's blocking checks sit between its op and the next layer's.
+DBT_LAYERS = ("bronze", "silver", "gold")
+
+
+def _build_dbt_layer_assets(layer: str):
+    """Every dbt model under models/<domain>/<layer>/, materialized as Delta via delta_rw."""
+
+    @dbt_assets(
+        manifest=DBT_PROJECT_DIR.joinpath("target", "manifest.json"),
+        # Folder convention (models/<domain>/<layer>/), so a new domain's models are
+        # picked up with no Python change. fqn, not path: dagster-dbt resolves the
+        # selection itself and its path method does not expand the `*`.
+        select=f"fqn:*.{layer}.*",
+        name=f"dbt_{layer}",
+        dagster_dbt_translator=PureFlowDbtTranslator(),
+    )
+    def _dbt_layer(context, dbt: DbtCliResource, execution_date_resource: ExecutionDateResource):
+        execution_date = execution_date_resource.resolved_date
+        # The landing_read plugin (dbt_plugins/landing_source.py) can't see dbt's --vars
+        # (it only Jinja-renders .sql, not sources.yml meta), so it reads this env var
+        # directly, so it is set here to keep both resolution paths in agreement.
+        os.environ["EXECUTION_DATE"] = execution_date
+        # dbt.cli adds --select for exactly this op's models.
+        yield from dbt.cli(
+            ["run", "--vars", f"execution_date: {execution_date}"],
+            context=context,
+        ).stream()
+
+    return _dbt_layer
+
+
+dbt_layer_assets = [_build_dbt_layer_assets(layer) for layer in DBT_LAYERS]
 
 
 def _run_source_gate(context, gx_resource, execution_date, path, data_format, expectations, name):
@@ -271,7 +291,7 @@ generator_assets = [_build_generator_asset(*spec) for spec in GENERATORS]
 # assets are produced by a factory, and that helper only picks up assets bound
 # to a module-level name. It also never collected @asset_check at all, which is
 # why the check list used to be maintained by hand, and could miss one.
-all_assets = [pureflow_dbt_assets, *source_gate_assets, *generator_assets]
+all_assets = [*dbt_layer_assets, *source_gate_assets, *generator_assets]
 all_asset_checks = target_gate_checks
 
 # The two data generators write to the *same* landing paths, so a job selecting
@@ -282,6 +302,16 @@ GENERATOR_GROUPS = ("clean_data", "dirty_data", "test_quality")
 pureflow_pipeline_job = define_asset_job(
     name="pureflow_pipeline_job",
     selection=AssetSelection.all() - AssetSelection.groups(*GENERATOR_GROUPS),
+)
+
+# Experimental baseline (Scenario A in scripts/run_experiments.py): the same
+# dbt models with every quality gate removed, i.e. no pre-flight landing assets
+# and no asset checks. Both this and pureflow_pipeline_job run through Dagster,
+# so orchestration overhead is identical and a comparison between them measures
+# the gates and nothing else.
+baseline_no_gates_job = define_asset_job(
+    name="baseline_no_gates_job",
+    selection=AssetSelection.groups("bronze", "silver", "gold").without_checks(),
 )
 
 data_generation_job = define_asset_job(
@@ -312,7 +342,7 @@ quality_test_bronze_job = define_asset_job(
     # Post-write breaker, run as step two: `pureflow_pipeline_job` first to
     # materialize a clean Bronze, then this, which corrupts those Delta tables
     # and re-runs only their blocking gates. dbt is NOT in this
-    # job - when it was, `dbt run` rebuilt Bronze from clean landing and wiped
+    # job: when it was, `dbt run` rebuilt Bronze from clean landing and wiped
     # the corruption before the gate could see it.
     selection=(
         AssetSelection.assets(AssetKey("inject_corrupt_bronze"))
@@ -336,6 +366,7 @@ defs = Definitions(
     },
     jobs=[
         pureflow_pipeline_job,
+        baseline_no_gates_job,
         data_generation_job,
         dirty_data_generation_job,
         quality_test_landing_job,

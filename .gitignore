@@ -5,28 +5,27 @@ __pycache__/
 *.so
 .Python
 build/
-develop-eggs/
 dist/
-downloads/
-eggs/
-.eggs/
 *.egg-info/
-.installed.cfg
+.eggs/
 *.egg
-MANIFEST
 .venv/
 venv/
 ENV/
 .pytest_cache/
+.ruff_cache/
 .mypy_cache/
+.coverage
+htmlcov/
 .ipynb_checkpoints/
 .env
-.DS_Store
-Thumbs.db
+mise.local.toml
 
-# --- Poetry & Dependency Managers ---
-# poetry.lock is NOT ignored (it ensures reproducible builds)
-# .python-version is removed as per project cleanup
+# --- OS ---
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
 
 # --- IDEs & Editors ---
 .vscode/
@@ -34,41 +33,48 @@ Thumbs.db
 *.swp
 *.swo
 
+# --- Office documents ---
+# The article is kept outside version control (backed up separately); only the
+# data and scripts behind its results live here, under docs/experiments/.
+*.docx
+*.pdf
+# Lock files Word and LibreOffice create while a document is open
+~$*
+.~lock.*#
+
 # --- PureFlow-Arch Project Specific ---
 
 # 1. Data Storage (MinIO / S3 Simulated)
-# Ignore all data except the .gitkeep to preserve directory structure
+# Everything under data/ is runtime state; .gitkeep preserves the directory
 data/*
 !data/.gitkeep
-# Ignore local MinIO persistent volume
-data/minio_data/
 
 # 2. Processing Engine (DuckDB)
-# Ignore local database files and write-ahead logs
 *.db
 *.db.wal
 *.duckdb
 *.duckdb.wal
 
 # 3. Transformation Layer (dbt)
+# profiles.yml is tracked on purpose: the container reads it from dbt/
 dbt/target/
 dbt/dbt_packages/
 dbt/logs/
-dbt/profiles.yml
 dbt/.user.yml
-# dbt-specific ignored files
 target/
 dbt_packages/
 
 # 4. Orchestration Layer (Dagster)
-dagster_home/
+# Run history and logs are runtime state; dagster.yaml is the instance config
+dagster_home/*
+!dagster_home/dagster.yaml
 .dagster/
 storage/
 *.tmp
 *~
 
 # 5. Quality & Validation (Great Expectations)
-# Ignore uncommitted checkpoints and generated data docs
+# Generated data docs and validation results
 gx/uncommitted/
 gx/logs/
 # Suite JSONs are OUTPUT, not source: the expectations are declared in
@@ -79,7 +85,3 @@ gx/expectations/*.json
 # validation_definitions are created and deleted per-run by gx_validator.py and are
 # never meant to persist between runs, let alone be committed.
 gx/validation_definitions/
-
-# 6. Docker
-.dockerignore
-# (Keep the dockerfile and compose files)
