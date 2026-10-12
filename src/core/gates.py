@@ -1,32 +1,18 @@
-"""Declarative spec for every quality gate in the pipeline.
+"""Declarative quality gates. orchestration.py builds Dagster assets and checks from these.
 
-Pure data, with no Dagster or dbt imports. Two reasons:
-
-1. orchestration.py builds the assets and asset_checks from this table instead
-   of repeating a near-identical 15-line block per gate.
-2. tests can import it directly. Importing orchestration.py is not an option:
-   @dbt_assets reads dbt/target/manifest.json at import time and that path is
-   gitignored, so the import fails anywhere dbt has not run, CI included.
-
-`path_key` indexes into core.config.get_s3_paths(), which is the single source
-of truth for S3 layout. The gates used to hard-code the same URIs a second
-time, so a layout change had to be made in two places or the gate would
-end up validating a path nothing writes to.
+Kept free of Dagster/dbt imports so tests can load it without a dbt manifest.
+`path_key` indexes into core.config.get_s3_paths().
 """
 
 from dataclasses import dataclass
 
 EMAIL_REGEX = r"[^@]+@[^@]+\.[^@]+"
 
-# Upper bound only guards against a runaway generator; the value that matters
-# is min_value=1. GX evaluates value-based expectations vacuously on an empty
-# table (0 rows passes ExpectColumnValuesToBeBetween), so without a row-count
-# floor, a run that produces nothing at all clears every gate.
+# GX passes column expectations on an empty table, so every suite needs a row-count floor.
 MAX_ROWS = 2_000_000
 
 
 def non_empty(max_rows: int = MAX_ROWS) -> dict:
-    """Table must have at least one row."""
     return {
         "expectation": "ExpectTableRowCountToBeBetween",
         "kwargs": {"min_value": 1, "max_value": max_rows},
@@ -50,12 +36,7 @@ def between(column: str, **bounds) -> dict:
 
 @dataclass(frozen=True)
 class SourceGate:
-    """Pre-flight gate: a Dagster asset validating a raw landing file.
-
-    `name` doubles as the Dagster asset name and the dbt source name, which is
-    what makes the gate a real upstream dependency of the Bronze model rather
-    than a check running alongside it.
-    """
+    """Pre-flight gate on a landing file. `name` must match the dbt source name."""
 
     name: str
     path_key: str
@@ -65,16 +46,13 @@ class SourceGate:
 
 @dataclass(frozen=True)
 class TargetGate:
-    """Post-write gate: an @asset_check on a dbt model's materialized output."""
+    """Post-write @asset_check on a dbt model's output. `name` must match the model name."""
 
     name: str
     path_key: str
     expectations: list[dict]
     blocking: bool = True
     data_format: str = "delta"
-    # Assets that must run before this check when a job selects both. Used by
-    # quality_test_bronze_job so the corruptor overwrites Bronze before the
-    # gate reads it, instead of racing it.
     additional_deps: tuple[str, ...] = ()
     check_name: str | None = None
 
@@ -83,25 +61,18 @@ class TargetGate:
         return self.check_name or f"check_{self.name}_target"
 
 
-# Every suite must cover the columns the corruptors in utils/generate_corrupt_data.py
-# actually damage. When they did not, the quality-test jobs reported success on data
-# it had corrupted on purpose.
+# Suites must cover the columns that utils/generate_corrupt_data.py damages.
 SOURCE_GATES = [
     SourceGate(
         name="sales_landing",
         path_key="sales_landing",
         data_format="csv",
-        # `id` is what generate_dirty_data and corrupt_landing_zone null out.
-        # Checking only customer_id (always 1 in the corrupt file) let bad
-        # input reach Bronze, so this gate never actually fired.
         expectations=[non_empty(), not_null("id"), not_null("customer_id")],
     ),
     SourceGate(
         name="customers_landing",
         path_key="customers_landing",
         data_format="json",
-        # corrupt_landing_zone writes 'invalid-email-N'; without the regex the
-        # landing gate passed and only the Bronze check caught it, too late.
         expectations=[non_empty(), not_null("id"), matches("email")],
     ),
 ]
@@ -110,8 +81,6 @@ TARGET_GATES = [
     TargetGate(
         name="stg_sales_bronze",
         path_key="sales_bronze",
-        # corrupt_bronze_layer injects NULL product and price -10.5 while
-        # keeping `id` populated, so an id-only suite passed on corrupt data.
         expectations=[
             non_empty(),
             not_null("id"),
@@ -123,8 +92,6 @@ TARGET_GATES = [
     TargetGate(
         name="stg_customers_bronze",
         path_key="customers_bronze",
-        # corrupt_bronze_layer nulls customer_id but writes a *valid* e-mail,
-        # so the regex-only suite passed.
         expectations=[non_empty(), not_null("customer_id"), matches("email")],
         additional_deps=("inject_corrupt_bronze",),
     ),
@@ -146,7 +113,6 @@ TARGET_GATES = [
             between("avg_ticket", min_value=0, max_value=100000),
             not_null("total_revenue"),
         ],
-        # Non-blocking: nothing in the DAG consumes Gold downstream.
         blocking=False,
         check_name="check_sales_summary",
     ),

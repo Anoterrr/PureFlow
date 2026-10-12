@@ -1,9 +1,7 @@
-"""dbt-duckdb write plugin: materializes 'external' models as Delta tables.
+"""dbt-duckdb plugin that writes 'external' models as Delta tables via delta-rs.
 
-dbt-duckdb's bundled 'delta' plugin only reads (no store()), so Delta writes
-aren't native. This hooks into the external materialization's store_relation()
-call to convert the staged output into a real Delta table via delta-rs,
-reading it back through DuckDB rather than pandas+s3fs (not a dependency here).
+dbt-duckdb's bundled delta plugin can only read, so the staged Parquet output
+is read back with DuckDB and written to `delta_table_path`.
 """
 
 from dbt.adapters.duckdb.plugins import BasePlugin
@@ -38,8 +36,6 @@ class Plugin(BasePlugin):
             delta_table_path,
             table,
             mode=mode,
-            # A full overwrite should take the model's current schema rather
-            # than hard-failing if a column was added/removed since last run.
             schema_mode="overwrite" if mode == "overwrite" else None,
             storage_options=get_delta_storage_options(),
         )

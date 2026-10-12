@@ -5,7 +5,6 @@ from src.utils.generators import generate_base_customers, generate_base_sales
 
 
 def test_generate_base_customers():
-    """Validates customer generator logic."""
     n_customers = 10
     customers = generate_base_customers(n_customers)
 
@@ -22,7 +21,6 @@ def test_generate_base_customers():
 
 
 def test_generate_base_sales():
-    """Validates sales generator logic and column naming."""
     n_sales = 20
     n_customers = 5
     sales = generate_base_sales(n_sales, n_customers, (10, 100), "2024-03-29")
@@ -34,7 +32,6 @@ def test_generate_base_sales():
 
 
 def test_get_s3_paths():
-    """Ensures S3 paths are correctly formatted."""
     paths = get_s3_paths("2024-01-01")
     assert paths["sales_landing"] == "s3://landing-zone/sales_erp/dt=2024-01-01/sales.csv"
     assert paths["sales_bronze"] == "s3://bronze/sales_erp/dt=2024-01-01/stg_sales_bronze"

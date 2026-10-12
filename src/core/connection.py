@@ -1,4 +1,4 @@
-"""Module to manage connections to Storage (MinIO) and the Processing Engine (DuckDB)."""
+"""DuckDB connections configured for S3 access."""
 
 import os
 
@@ -8,16 +8,13 @@ from dotenv import load_dotenv
 from core.config import get_s3_connection_config
 from core.logger import logger
 
-# Only load .env if variables are not already set (prevents overriding Docker env with localhost)
 load_dotenv(override=False)
 
 
 class ConnectionFactory:
-    """Manages connections to Storage (MinIO) and the Processing Engine (DuckDB)."""
-
     @staticmethod
     def get_duckdb_conn(db_path: str = None):
-        """Returns a DuckDB connection. Use :memory: for non-persistent tasks to avoid locks."""
+        """Returns a DuckDB connection with the httpfs, delta and json extensions loaded."""
         if db_path is None:
             db_path = os.getenv("DUCKDB_PATH", "data/datagate_local.db")
 
@@ -28,8 +25,6 @@ class ConnectionFactory:
 
         conn = duckdb.connect(db_path)
 
-        # Configurable resource limits (defaults are conservative to fit lower-RAM
-        # environments, e.g. Docker Desktop on Mac). Override via .env if needed.
         memory_limit = os.getenv("DUCKDB_MEMORY_LIMIT", "4GB")
         threads = os.getenv("DUCKDB_THREADS", "2")
         conn.execute(f"SET memory_limit = '{memory_limit}'")
@@ -46,15 +41,7 @@ class ConnectionFactory:
 
     @staticmethod
     def setup_s3_auth(conn):
-        """Configures DuckDB's S3 access for this connection via the Secrets Manager.
-
-        The secret is the only thing doing work here. This used to also run
-        `SET s3_url_style/s3_endpoint/s3_use_ssl` plus a `SET GLOBAL` of each,
-        which was measured to be redundant against a live MinIO: the secret
-        alone covers read_csv_auto, read_json_auto, delta_scan, glob and COPY TO.
-        The reverse is not true - SET without a secret fails on delta_scan,
-        which is why the secret is the part that must stay.
-        """
+        """Creates the S3 secret; delta_scan only authenticates through a secret, not SET."""
         s3_cfg = get_s3_connection_config()
 
         logger.info(
@@ -63,8 +50,6 @@ class ConnectionFactory:
             s3_cfg["s3_url_style"],
         )
 
-        # CREDENTIAL_CHAIN picks up the AWS_* variables that
-        # get_s3_connection_config() exports just above.
         conn.execute(f"""
             CREATE OR REPLACE SECRET (
                 TYPE S3,

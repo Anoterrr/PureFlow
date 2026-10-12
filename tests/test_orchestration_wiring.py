@@ -1,11 +1,4 @@
-"""Regression guard: orchestration.py must auto-discover dbt models via the manifest.
-
-Bronze/Silver/Gold all live as dbt models under dbt/models/ now (see
-src/orchestration.py's module docstring). A new model is picked up automatically
-by dbt's own project scanning when `dbt run`/`dbt compile` regenerates the
-manifest, with no per-model Python registration step. This test fails fast if
-that wiring regresses back to requiring manual asset registration.
-"""
+"""orchestration.py must load dbt models from the manifest, one op per layer."""
 
 import ast
 from pathlib import Path
@@ -35,12 +28,7 @@ def test_orchestration_wires_dbt_assets_from_manifest():
 
 
 def test_dbt_runs_one_op_per_medallion_layer():
-    """A blocking check only holds back assets computed by a *different* op.
-
-    With one @dbt_assets covering the whole project, Bronze, Silver and Gold
-    were written by the same `dbt run` before any post-write check ran, so the
-    blocking Bronze/Silver gates blocked nothing. Each layer must be its own op.
-    """
+    """Blocking checks only hold back assets built by a different op."""
     source = ORCHESTRATION_PATH.read_text(encoding="utf-8")
     tree = ast.parse(source)
 

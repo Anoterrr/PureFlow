@@ -1,8 +1,6 @@
 #!/bin/bash
-# setup_perms.sh: Ensures 'analyst' (UID 1000) owns the data volume.
-# Use this on the host terminal (Linux/WSL) if you encounter Permission Denied
-# errors on bind-mounted volumes. NOT needed on Docker Desktop (Mac/Windows),
-# which maps bind-mount permissions differently, so skip this script there.
+# Gives the container user (UID 1000) ownership of the bind-mounted data on Linux/WSL.
+# Not needed on Docker Desktop.
 
 set -e
 
@@ -11,11 +9,9 @@ ANALYST_UID=1000
 
 echo "🛡️ Fixing permissions for PureFlow (UID $ANALYST_UID)..."
 
-# Ensure data directories exist
-mkdir -p "$PROJECT_ROOT/data/minio_data"
+mkdir -p "$PROJECT_ROOT/data/seaweedfs_data" "$PROJECT_ROOT/data/seaweedfs_console"
 mkdir -p "$PROJECT_ROOT/gx/uncommitted/data_docs"
 
-# Apply recursive ownership
 sudo chown -R $ANALYST_UID:$ANALYST_UID "$PROJECT_ROOT/data"
 sudo chown -R $ANALYST_UID:$ANALYST_UID "$PROJECT_ROOT/gx/uncommitted"
 

@@ -9,13 +9,15 @@ on:
 jobs:
   quality-gate:
     name: "🚀 Quality & Security Gate"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      # Third-party actions are pinned to a commit SHA; the tag is in the comment.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4.2.0
         with:
+          version: "0.12.15"
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
@@ -25,7 +27,6 @@ jobs:
       - name: Install Dependencies
         run: uv sync --frozen
 
-      # Same hooks developers run locally via `pre-commit run --all-files`
       - name: Run pre-commit hooks
         run: uv run pre-commit run --all-files --show-diff-on-failure
 
@@ -33,6 +34,6 @@ jobs:
         run: uv run pytest tests/
 
       - name: Hadolint Dockerfile
-        uses: hadolint/hadolint-action@v3.1.0
+        uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf # v3.1.0
         with:
           dockerfile: dockerfile

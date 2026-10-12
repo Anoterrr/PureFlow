@@ -1,12 +1,6 @@
 {#-
-    Each medallion layer is a separate dbt invocation (see src/orchestration.py),
-    and every invocation gets a fresh in-memory DuckDB, so a ref() to the previous
-    layer finds nothing in the catalog. This registers every upstream model that
-    is not part of the current selection as a view over its Delta table, so the
-    next layer reads exactly the table its post-write gate validated.
-
-    Same idea as dbt-duckdb's register_upstream_external_models(), which reads
-    the staged Parquet file instead of the Delta table.
+    Each layer runs on a fresh in-memory DuckDB, so upstream models are
+    registered as views over their Delta tables before ref() can resolve them.
 -#}
 {% macro register_upstream_delta_models() %}
     {% if execute %}
@@ -34,7 +28,6 @@
                 {% endif %}
             {% endfor %}
         {% endfor %}
-        {#- The hook's transaction is rolled back unless committed here. -#}
         {% if registered %}
             {% do adapter.commit() %}
         {% endif %}

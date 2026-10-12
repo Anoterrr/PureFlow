@@ -1,16 +1,7 @@
-"""Regression guard: every quality gate must point at something that exists.
+"""Every quality gate must point at a model, source, asset and S3 path that exist.
 
-Dagster ignores an @asset_check whose `asset=` AssetKey matches nothing
-in the graph, so renaming a dbt model without updating the gate removes a
-quality gate with no error anywhere. The same applies to `additional_deps` (the
-Bronze gates use it to order themselves after inject_corrupt_bronze) and to
-`path_key`, which would otherwise validate a path nothing ever writes to.
-
-core.gates is imported directly because it carries no Dagster or dbt
-imports. Importing src/orchestration.py is not an option: @dbt_assets reads
-dbt/target/manifest.json at import time and that path is gitignored, so the
-import fails anywhere dbt has not run, CI included. The one thing that does
-need orchestration.py is checked by parsing it with `ast`.
+Dagster silently drops a check whose asset does not exist. orchestration.py is
+parsed with `ast` instead of imported, since importing it needs a dbt manifest.
 """
 
 import ast
@@ -42,7 +33,6 @@ def _dbt_source_names():
 
 
 def _generator_asset_names():
-    """Asset names from the GENERATORS table in orchestration.py, read via ast."""
     for node in ast.walk(TREE):
         if isinstance(node, ast.Assign) and any(
             getattr(t, "id", None) == "GENERATORS" for t in node.targets
@@ -56,7 +46,6 @@ def _generator_asset_names():
 
 
 def test_the_gate_tables_are_not_empty():
-    """Guards the guard: empty tables would make every assertion below vacuous."""
     assert SOURCE_GATES, "SOURCE_GATES is empty - no pre-flight gate would ever run"
     assert TARGET_GATES, "TARGET_GATES is empty - no post-write check would ever run"
 
@@ -109,11 +98,6 @@ def test_check_names_are_unique():
 
 
 def test_orchestration_builds_its_gates_from_the_tables():
-    """The tables are only a single source of truth while orchestration reads them.
-
-    Fails if someone reintroduces hand-written @asset_check blocks, which is how
-    the check registry drifted out of sync with the gates in the first place.
-    """
     source = ORCHESTRATION_PATH.read_text(encoding="utf-8")
     for table in ("SOURCE_GATES", "TARGET_GATES"):
         assert f"for g in {table}" in source, (
@@ -123,7 +107,6 @@ def test_orchestration_builds_its_gates_from_the_tables():
 
 
 def test_dbt_models_take_their_bucket_from_the_environment():
-    """core.config reads S3_BUCKET_*; a model with a literal bucket drifts from the gates."""
     hardcoded = [
         p.relative_to(REPO_ROOT).as_posix()
         for p in DBT_MODELS_DIR.rglob("*.sql")

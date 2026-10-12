@@ -1,7 +1,7 @@
 """Figura de arquitetura do artigo (em português).
 
 Gerar com:
-    uv run --with matplotlib python docs/arquitetura_pt.py
+    uv run python docs/arquitetura_pt.py
 """
 
 from pathlib import Path
@@ -138,12 +138,12 @@ caixa(
 )
 seta(8, 7.45, 8, 7.05)
 
-# Contêiner do MinIO
+# Contêiner do armazenamento de objetos (SeaweedFS)
 caixa(0.4, 3.75, 15.2, 3.25, "", fundo="none", borda="#94A3B8", tracejada=True, lw=1.4)
 ax.text(
     0.65,
     6.78,
-    "MinIO: armazenamento de objetos compatível com S3",
+    "SeaweedFS: armazenamento de objetos compatível com S3",
     fontsize=10.5,
     fontweight="bold",
     color="#334155",
@@ -264,7 +264,7 @@ caixa(
 seta(gx, meio - 0.33, qx + 0.6, qy + qh, cor="#DC2626", tracejada=True)
 seta(cx["bronze"], y, qx + 2.0, qy + qh, cor="#DC2626", tracejada=True)
 seta(cx["silver"], y, qx + 3.6, qy + qh, cor="#DC2626", tracejada=True)
-# Gold: a falha também copia o lote, mas não interrompe nada (não há consumidor a jusante)
+# Gold: a falha copia o lote, mas não interrompe o fluxo
 seta(cx["gold"] - 0.7, y, qx + qw, qy + qh * 0.55, cor="#F87171", tracejada=True, lw=1.3)
 ax.text(
     12.1,

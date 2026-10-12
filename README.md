@@ -10,7 +10,7 @@
 The project is built on **Clean Architecture** and **SOLID** principles, ensuring that infrastructure, execution logic, and business rules are strictly decoupled.
 
 ### 1. Medallion Layers (S3-Native, Delta everywhere)
-Data evolves through progressive layers in **MinIO (S3)**:
+Data evolves through progressive layers in **S3 object storage (SeaweedFS)**:
 *   **Landing (Raw):** Source files (CSV/JSON) in their original format. It is the only layer that isn't Delta; it's the true external boundary, read by dbt through sources that point at a small read plugin (`meta.plugin: landing_read` + `meta.path_template`, see `src/dbt_plugins/landing_source.py`).
 *   **Bronze (Standardized):** Schema-enforced Delta tables, produced by dbt models.
 *   **Silver (Validated & Clean):** High-quality Delta tables after **Great Expectations** gates and SQL transformations, chained via `ref()`.
@@ -49,13 +49,13 @@ Dropping the model files in is enough for Dagster to pick them up. The per-layer
 ## 🛠️ Tech Stack & Ecosystem
 
 *   **Orchestration:** [Dagster](https://dagster.io/) (Asset-Based, Modern Orchestrator)
-*   **Storage:** [MinIO](https://min.io/) (High-performance S3-Compatible Storage)
+*   **Storage:** [SeaweedFS](https://github.com/seaweedfs/seaweedfs) (Apache 2.0, S3-Compatible Object Storage). It replaced MinIO, whose open-source project was archived in 2026 and whose official images and binaries were taken down. Every client in the project speaks plain S3 to `storage:18900`, so the swap touched only `docker-compose.yml`, the default host name in `src/core/config.py` and the docs, not the pipeline.
 *   **Processing:** [DuckDB](https://duckdb.org/) (The "SQLite for Analytics" - Local-first OLAP)
 *   **Quality:** [Great Expectations](https://greatexpectations.io/) (Dynamic Data Validation)
 *   **Modeling:** [dbt](https://www.getdbt.com/) (Modular SQL transformations for every medallion layer) + [delta-rs](https://github.com/delta-io/delta-rs) (Delta Lake writes via a custom dbt-duckdb plugin)
 *   **DataOps:** GitHub Actions + pre-commit (Automated Linting, Security, and Testing)
 *   **Code Quality:** [Ruff](https://docs.astral.sh/ruff/) (lint + format) and [Bandit](https://bandit.readthedocs.io/) (security), enforced via pre-commit hooks
-*   **Environment:** Docker & [uv](https://docs.astral.sh/uv/) (Python 3.12)
+*   **Environment:** Docker & [uv](https://docs.astral.sh/uv/) (Python 3.12.14)
 
 ---
 
@@ -71,7 +71,7 @@ PureFlow/
 ├── docs/
 │   ├── experiments/        # results.json from scripts/run_experiments.py + chart script
 │   └── arquitetura_pt.py   # Architecture figure used in the article
-├── scripts/                # doctor.sh, MinIO/permission setup, run_experiments.py
+├── scripts/                # doctor.sh, bucket/permission setup, run_experiments.py
 ├── src/
 │   ├── core/               # gates.py (declarative quality gates), config/paths,
 │   │                       # connection, quarantine engine, GX context
@@ -95,7 +95,7 @@ PureFlow/
 Nothing else. No Python, no compiler, no Xcode Command Line Tools: see **Portability** below for what was verified.
 
 ### 2. Configure Environment
-Copy the example environment file (required, MinIO will fail to start without it):
+Copy the example environment file (required: it holds the storage credentials and bucket names):
 ```bash
 cp .env.example .env
 ```
@@ -113,7 +113,7 @@ docker compose up -d --build
 
 > **Note (low-RAM machines):** the DuckDB resource limits (`DUCKDB_MEMORY_LIMIT`, `DUCKDB_THREADS` in `.env`) default to conservative values that fit inside Docker Desktop's default VM allocation. Raise them if you have given Docker more.
 
-> **Note (Security):** all published ports are bound to `127.0.0.1`, so the stack is reachable only from the host machine, not from your local network, even though the default MinIO credentials are weak (fine for local dev, never expose these ports beyond localhost).
+> **Note (Security):** all published ports are bound to `127.0.0.1`, so the stack is reachable only from the host machine, not from your local network, even though the default storage credentials are weak (fine for local dev, never expose these ports beyond localhost).
 
 ### 5. Monitoring & Access
 | Tool | Endpoint | Description |
@@ -122,7 +122,8 @@ docker compose up -d --build
 | **Streamlit** | [http://localhost:8501](http://localhost:8501) | Business Insights Dashboard |
 | **dbt Docs** | [http://localhost:8081](http://localhost:8081) | Data Documentation & Catalog |
 | **GX Reports** | [http://localhost:8082](http://localhost:8082) | Data Quality HTML Reports |
-| **MinIO Console** | [http://localhost:9001](http://localhost:9001) | S3 Object Browser |
+| **Storage Console** | [http://localhost:18901](http://localhost:18901) | SeaweedFS admin UI: buckets and objects (log in with `STORAGE_USER` / `STORAGE_PASSWORD`) |
+| **S3 API** | `http://localhost:18900` | S3 endpoint for tools outside Docker (`S3_ENDPOINT` in `.env`) |
 
 ### 6. Run the pipeline
 The stack starts with empty buckets, so generate a landing zone first. Either use the Dagster UI (Jobs → Launch) or the CLI:
@@ -157,7 +158,7 @@ flowchart TD
 
     DAGSTER --> DBT --> LAND
 
-    subgraph S3["🪣 MinIO / S3: object storage"]
+    subgraph S3["🪣 SeaweedFS / S3: object storage"]
         direction LR
         LAND[("Landing Zone<br/>raw CSV / JSON<br/>external boundary")]
         GXPRE{{"GX pre-flight<br/>blocking"}}
@@ -208,8 +209,8 @@ flowchart TD
 ![dbt Docs](docs/dbt_docs_ui.png)
 *Model lineage and documentation generated by dbt.*
 
-### 📦 MinIO Console (S3 Storage)
-![MinIO Console](docs/minio_ui.png)
+### 📦 Storage Console (SeaweedFS)
+![Storage Console](docs/storage_ui.png)
 *S3-compatible storage browser: one bucket per layer, with the `quarantine/` prefix next to the tables in the bucket it guards.*
 
 ### 📊 Streamlit Dashboard (Gold)
@@ -243,12 +244,29 @@ Two different gates, easy to confuse:
 
 ---
 
+## 📌 Pinned Versions
+
+Everything external is pinned, so a rebuild months from now produces the same stack:
+
+| What | Where | Pinned to |
+| :--- | :--- | :--- |
+| Python | `.python-version`, `mise.toml`, `dockerfile` | 3.12.14 (`python:3.12.14-slim-trixie`, by digest) |
+| Python packages | `pyproject.toml` (direct, `==`) + `uv.lock` (full tree) | exact versions, `uv sync --frozen` in the image and CI |
+| uv | `dockerfile`, CI | 0.12.15 (`ghcr.io/astral-sh/uv`, by digest) |
+| Container images | `docker-compose.yml` | tag + digest: `chrislusf/seaweedfs:4.48`, `amazon/aws-cli:2.37.13` |
+| GitHub Actions | `.github/workflows/dataops.yml` | commit SHA, tag in a comment |
+| pre-commit hooks | `.pre-commit-config.yaml` | commit SHA; the local hooks run the versions in `uv.lock` |
+
+All of them come from the project's own publisher: Docker Official Images (`python`), Astral (`uv`), the SeaweedFS author (`chrislusf/seaweedfs`), AWS (`amazon/aws-cli`), and GitHub, Astral and Hadolint for the actions. The `apt-get` packages in the `dockerfile` (`curl`, `git`, build tools) are the one exception: Debian removes superseded versions from its mirrors, so pinning them would break the build instead of protecting it. The base image digest still fixes the Debian release they come from.
+
+---
+
 ## 💻 Portability
 
 The stack runs natively on x86_64 and arm64, Linux, macOS (Intel and Apple Silicon) and Windows via WSL2. Two things were checked rather than assumed:
 
-*   **Every image is multi-arch.** `python:3.12-slim`, `quay.io/minio/minio`, `quay.io/minio/mc` and `ghcr.io/astral-sh/uv` all publish `linux/arm64`, so an Apple Silicon machine builds and runs natively with no QEMU emulation. No `platform:` is pinned anywhere in `docker-compose.yml`, which is what would force emulation.
-*   **Every dependency ships a prebuilt wheel.** Walking `uv.lock` with environment markers resolved for macOS arm64, Linux arm64 and Linux x86_64 gives 126-127 installable packages per platform, of which 107 are pure-Python and the rest have native wheels for that exact platform. (`psutil` looks like an exception in the lock, which records only Windows wheels for it; that is correct, since Dagster declares it under `sys_platform == 'win32'` and it is never installed elsewhere.)
+*   **Every image is multi-arch.** `python:3.12.14-slim-trixie`, `chrislusf/seaweedfs`, `amazon/aws-cli` and `ghcr.io/astral-sh/uv` all publish `linux/arm64`, so an Apple Silicon machine builds and runs natively with no QEMU emulation. No `platform:` is pinned anywhere in `docker-compose.yml`, which is what would force emulation.
+*   **Every dependency ships a prebuilt wheel** for Linux x86_64, Linux arm64 and macOS arm64 (checked against `uv.lock`). The only packages without Linux wheels, `psutil` and `pywin32`, are declared for Windows only and never installed elsewhere.
 
 The one host-specific script is `scripts/setup_perms.sh`, which fixes bind-mount ownership on Linux and WSL. Docker Desktop on macOS and Windows maps permissions differently, so that script is not needed there and says so.
 

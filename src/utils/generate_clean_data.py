@@ -1,4 +1,4 @@
-"""Module for generating synthetic clean big data in S3/MinIO."""
+"""Writes a clean synthetic landing zone (1M sales, 100k customers) to S3."""
 
 import pandas as pd
 
@@ -9,7 +9,6 @@ from utils.generators import generate_base_customers, generate_base_sales
 
 
 def generate_clean_big_data(execution_date=None):
-    """Generates clean sales and customer data and writes directly to MinIO."""
     factory = ConnectionFactory()
     conn = factory.get_duckdb_conn(db_path=":memory:")
     factory.setup_s3_auth(conn)
@@ -20,10 +19,9 @@ def generate_clean_big_data(execution_date=None):
     n_customers = 100_000
     logger.info("🚀 Generating %d customers (CLEAN) for date %s...", n_customers, base_date)
     customers = generate_base_customers(n_customers)
-    # created_at is an extra technical metadata field
     customers["created_at"] = [base_date] * n_customers
 
-    # DuckDB looks this up by variable name from the local scope in the COPY below
+    # Referenced by name in the COPY below (DuckDB replacement scan).
     df_customers = pd.DataFrame(customers)  # noqa: F841
 
     logger.info(
@@ -42,14 +40,13 @@ def generate_clean_big_data(execution_date=None):
         amount_range=(10.0, 5000.0),
         base_date=base_date,
     )
-    # DuckDB looks this up by variable name from the local scope in the COPY below
     df_sales = pd.DataFrame(sales)  # noqa: F841
 
     logger.info("📤 Writing sales directly to Landing Zone: %s", s3_paths["sales_landing"])
     conn.execute(f"COPY df_sales TO '{s3_paths['sales_landing']}' (FORMAT 'CSV', HEADER TRUE)")
 
     conn.close()
-    logger.info("✅ Clean Big Data generated and written to MinIO successfully!")
+    logger.info("✅ Clean Big Data generated and written to S3 successfully!")
 
 
 if __name__ == "__main__":

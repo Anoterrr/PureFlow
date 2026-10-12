@@ -1,13 +1,8 @@
-# Multi-stage: the compiler toolchain needed to build wheels never reaches the
-# final image. Previously build-essential, gcc, python3-dev, git and libpq-dev
-# all shipped to production, and libpq-dev in particular was dead weight: there
-# is no PostgreSQL anywhere in this project (DuckDB and SQLite only).
+# Multi-stage: the compiler toolchain stays in the build stage.
 
-# ---------- build stage ----------
-FROM python:3.12-slim AS builder
+FROM python:3.12.14-slim-trixie@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f AS builder
 
-# Pinned version for reproducible builds
-COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.12.15@sha256:62f8c047d0a0e9ece6b53fc63df902585a67a47a7f318ddec4a37db586edc8e3 /uv /uvx /usr/local/bin/
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -20,22 +15,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Dependency files only, so the layer cache survives every source change.
-# --no-dev leaves pytest/ruff/bandit/sqlfluff/pre-commit out of the image;
-# they are installed by a plain `uv sync` locally and in CI.
 COPY pyproject.toml uv.lock /app/
 RUN uv sync --frozen --no-install-project --no-dev
 
-# ---------- runtime stage ----------
-FROM python:3.12-slim AS runtime
+FROM python:3.12.14-slim-trixie@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH" \
     VIRTUAL_ENV=/opt/venv
 
-# curl is needed by the compose healthchecks; git is kept because dbt shells out
-# to it for package resolution even when packages.yml is absent.
+# curl for the compose healthchecks; git because dbt shells out to it.
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl git \

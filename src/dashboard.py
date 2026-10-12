@@ -1,4 +1,4 @@
-"""Simple Business Dashboard using Streamlit and DuckDB (Reading from Gold S3)."""
+"""Streamlit dashboard over the latest Gold partition."""
 
 import re
 
@@ -9,22 +9,15 @@ from dotenv import load_dotenv
 from core.config import S3_BUCKET_GOLD
 from core.connection import ConnectionFactory
 
-# Only load .env if variables are not already set (prevents overriding Docker env with localhost)
 load_dotenv(override=False)
 
 st.set_page_config(page_title="PureFlow BI Dashboard", layout="wide")
 st.title("🌊 PureFlow: Gold Business Insights")
-st.markdown("This dashboard reads directly from the **Gold Layer** (S3/MinIO) using DuckDB.")
+st.markdown("This dashboard reads directly from the **Gold Layer** (S3) using DuckDB.")
 
 
 @st.cache_resource
 def get_duckdb_conn():
-    """Initializes and returns a DuckDB connection configured for S3/MinIO access.
-
-    Reuses ConnectionFactory (core/connection.py) rather than hand-rolling S3
-    setup: its CREATE SECRET-based auth is what the delta extension actually
-    needs (plain SET s3_access_key_id/etc. isn't enough for delta_scan()).
-    """
     factory = ConnectionFactory()
     conn = factory.get_duckdb_conn(db_path=":memory:")
     factory.setup_s3_auth(conn)
@@ -32,12 +25,7 @@ def get_duckdb_conn():
 
 
 def get_latest_partition_date(conn, bucket: str, table: str) -> str | None:
-    """Finds the most recent dt=YYYY-MM-DD partition written for a Gold Delta table.
-
-    No date is guessed or hardcoded: whatever the Dagster pipeline last wrote
-    is what gets shown, regardless of when that run happened. Looks for the
-    Delta transaction log rather than a bare .parquet file since Gold is Delta.
-    """
+    """Most recent dt=YYYY-MM-DD partition that has a Delta log."""
     files = conn.execute(
         "SELECT file FROM glob(?)", [f"s3://{bucket}/{table}/dt=*/_delta_log/*.json"]
     ).fetchall()
@@ -46,7 +34,6 @@ def get_latest_partition_date(conn, bucket: str, table: str) -> str | None:
 
 
 def load_gold_data():
-    """Loads the most recently written Gold sales summary Delta partition."""
     conn = get_duckdb_conn()
 
     latest_date = get_latest_partition_date(conn, S3_BUCKET_GOLD, "sales_summary")

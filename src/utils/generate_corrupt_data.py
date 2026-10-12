@@ -1,4 +1,4 @@
-"""Module for generating intentionally corrupt data at different layers in S3/MinIO."""
+"""Corruptors used by the quality demo jobs to prove the gates fire."""
 
 from deltalake import write_deltalake
 
@@ -8,7 +8,7 @@ from core.logger import logger
 
 
 def corrupt_landing_zone(execution_date=None):
-    """Corrupts data in the Landing Zone (CSV/JSON)."""
+    """Null ids and negative prices in sales, invalid e-mails in customers."""
     factory = ConnectionFactory()
     conn = factory.get_duckdb_conn(db_path=":memory:")
     factory.setup_s3_auth(conn)
@@ -18,9 +18,6 @@ def corrupt_landing_zone(execution_date=None):
 
     logger.warning("🧨 [Corruptor] Corrupting Landing Zone data for date %s...", base_date)
 
-    # 1. Corrupt Sales (CSV) - Inject Null IDs and Negative Prices
-    # Column names must match what stg_sales_bronze expects:
-    # id, customer_id, product, price, date
     conn.execute(
         """
         COPY (
@@ -36,12 +33,7 @@ def corrupt_landing_zone(execution_date=None):
         [s3_paths["sales_landing"]],
     )
 
-    # 2. Corrupt Customers (JSON) - Invalid Emails
-    # Column names must match what stg_customers_bronze expects: id, name, email, city, state
-    # NOTE: base_date is inlined (not bound as `?`) because a COPY with a placeholder
-    # both inside the SELECT and in the TO clause silently writes nothing on
-    # this DuckDB version (no error raised); base_date is an internal value,
-    # never user input, so inlining it here is safe.
+    # base_date is inlined: DuckDB silently writes nothing when `?` is used in both SELECT and TO.
     conn.execute(
         f"""
         COPY (
@@ -63,7 +55,7 @@ def corrupt_landing_zone(execution_date=None):
 
 
 def _write_corrupt_delta(conn, query: str, delta_table_path: str) -> None:
-    """Runs `query` and overwrites a Delta table with the result (bronze/silver are Delta now)."""
+    """Overwrites a Delta table with the result of `query`."""
     table = conn.execute(query).fetch_arrow_table()
     write_deltalake(
         delta_table_path,
@@ -75,7 +67,7 @@ def _write_corrupt_delta(conn, query: str, delta_table_path: str) -> None:
 
 
 def corrupt_bronze_layer(execution_date=None):
-    """Overwrites the Bronze Delta tables directly with bad data."""
+    """Null products and negative prices in sales, null customer_id in customers."""
     factory = ConnectionFactory()
     conn = factory.get_duckdb_conn(db_path=":memory:")
     factory.setup_s3_auth(conn)
@@ -86,8 +78,6 @@ def corrupt_bronze_layer(execution_date=None):
     logger.warning("🧨 [Corruptor] Corrupting Bronze Layer for date %s...", base_date)
 
     try:
-        # Inject sales with NULL product names in Bronze
-        # Bronze format: id, customer_id, product, price, sale_date (casted from date)
         _write_corrupt_delta(
             conn,
             """
@@ -105,8 +95,6 @@ def corrupt_bronze_layer(execution_date=None):
             s3_paths["sales_bronze"],
         )
 
-        # Inject customers with null customer_id in Bronze
-        # Bronze format: customer_id, name, email, city, state
         _write_corrupt_delta(
             conn,
             """
