@@ -123,7 +123,7 @@ docker compose up -d --build
 | **dbt Docs** | [http://localhost:8081](http://localhost:8081) | Data Documentation & Catalog |
 | **GX Reports** | [http://localhost:8082](http://localhost:8082) | Data Quality HTML Reports |
 | **Storage Console** | [http://localhost:18901](http://localhost:18901) | SeaweedFS admin UI: buckets and objects (log in with `STORAGE_USER` / `STORAGE_PASSWORD`) |
-| **S3 API** | `http://localhost:18900` | S3 endpoint for tools outside Docker (`S3_ENDPOINT` in `.env`) |
+| **S3 API** | [http://localhost:18900](http://localhost:18900) | S3 endpoint for tools outside Docker (`S3_ENDPOINT` in `.env`) |
 
 ### 6. Run the pipeline
 The stack starts with empty buckets, so generate a landing zone first. Either use the Dagster UI (Jobs → Launch) or the CLI:
