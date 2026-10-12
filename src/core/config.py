@@ -1,4 +1,4 @@
-"""Shared configuration for data generation and ingestion."""
+"""Shared configuration: partition dates, bucket names and S3 connection settings."""
 
 import os
 from datetime import datetime
@@ -6,31 +6,21 @@ from zoneinfo import ZoneInfo
 
 from core.logger import logger
 
-# Timezone every dt= partition is computed in. UTC by default, and stated
-# explicitly: with a naive datetime.now(), the host (-03:00) and the container
-# (UTC) resolved different dates for the same instant, so the pipeline wrote
-# dt=2026-09-21 inside Docker while the dashboard on the host looked for
-# dt=2026-09-20. Override only if the whole stack should partition in local
-# time, and then set it everywhere.
+# Host and containers must agree on the partition date, so it is never naive local time.
 PIPELINE_TIMEZONE = ZoneInfo(os.getenv("PIPELINE_TIMEZONE", "UTC"))
+
+S3_PORT = 18900
 
 
 def today() -> str:
-    """Today's partition date, in the pipeline's timezone."""
     return datetime.now(PIPELINE_TIMEZONE).strftime("%Y-%m-%d")
 
 
 def get_base_date() -> str:
-    """The date to partition by: the BASE_DATE override, or today.
-
-    A function, not a module constant. As a constant it was evaluated once at
-    import, so a long-running Dagster process kept writing yesterday's
-    partition after midnight until it was restarted.
-    """
+    """BASE_DATE if set, otherwise today. Resolved per call, not at import."""
     return os.getenv("BASE_DATE") or today()
 
 
-# S3 / MinIO Configuration
 S3_BUCKET_LANDING = os.getenv("S3_BUCKET_LANDING", "landing-zone")
 S3_BUCKET_BRONZE = os.getenv("S3_BUCKET_BRONZE", "bronze")
 S3_BUCKET_SILVER = os.getenv("S3_BUCKET_SILVER", "silver")
@@ -38,11 +28,7 @@ S3_BUCKET_GOLD = os.getenv("S3_BUCKET_GOLD", "gold")
 
 
 def get_s3_connection_config():
-    """
-    Returns a dictionary with DuckDB S3 configuration settings.
-    Handles Docker detection and endpoint resolution.
-    Also injects standard AWS environment variables for process-wide consistency.
-    """
+    """Resolves the S3 endpoint for the current environment and exports the AWS_* variables."""
     is_docker_env = os.getenv("IS_DOCKER", "false").lower() == "true"
     has_dockerenv = os.path.exists("/.dockerenv")
     is_cgroup_docker = False
@@ -66,14 +52,13 @@ def get_s3_connection_config():
     logger.debug("🔍 [Config] Environment S3_ENDPOINT: %s", s3_endpoint)
 
     if not s3_endpoint:
-        s3_endpoint = "http://minio:9000" if is_docker else "http://127.0.0.1:9000"
+        s3_endpoint = f"http://storage:{S3_PORT}" if is_docker else f"http://127.0.0.1:{S3_PORT}"
 
-    # CRITICAL: DuckDB 1.1.0+ often ignores s3_url_style='path' when using 'localhost'.
-    # Using '127.0.0.1' or the service name 'minio' forces path-style addressing.
+    # DuckDB ignores path-style addressing for 'localhost', so use an IP or the service name.
     if is_docker:
         if any(local in s3_endpoint for local in ["localhost", "127.0.0.1"]):
-            logger.info("🐳 [Config] Docker detected. Forcing 'minio:9000' endpoint.")
-            s3_endpoint = "http://minio:9000"
+            logger.info("🐳 [Config] Docker detected. Forcing 'storage:%s' endpoint.", S3_PORT)
+            s3_endpoint = f"http://storage:{S3_PORT}"
     else:
         if "localhost" in s3_endpoint:
             logger.info(
@@ -83,8 +68,6 @@ def get_s3_connection_config():
 
     logger.info("🚀 [Config] Final S3 Endpoint resolved to: %s", s3_endpoint)
 
-    # Set standard AWS/S3 environment variables to ensure official SDKs and
-    # tools (like DuckDB httpfs) pick them up automatically.
     os.environ["AWS_ACCESS_KEY_ID"] = os.getenv("STORAGE_USER", "admin")
     os.environ["AWS_SECRET_ACCESS_KEY"] = os.getenv("STORAGE_PASSWORD", "strongpassword123")
     os.environ["AWS_ENDPOINT_URL"] = s3_endpoint
@@ -92,12 +75,6 @@ def get_s3_connection_config():
 
     clean_endpoint = s3_endpoint.replace("http://", "").replace("https://", "")
 
-    # This one matters, despite looking redundant: dbt/profiles.yml resolves its own
-    # s3_endpoint from this variable, so the normalization above (localhost ->
-    # 127.0.0.1, or the Docker service name) has to reach dbt too. The DUCKDB_S3_*
-    # and AWS_S3_*_STYLE variables that used to be set here were removed: DuckDB
-    # takes those through SET/CREATE SECRET, never the environment, so nothing
-    # ever read them.
     os.environ["S3_ENDPOINT"] = clean_endpoint
 
     return {
@@ -111,7 +88,7 @@ def get_s3_connection_config():
 
 
 def get_delta_storage_options() -> dict[str, str]:
-    """Storage options for deltalake (delta-rs) reads/writes against MinIO/S3."""
+    """Storage options for delta-rs reads and writes."""
     s3_cfg = get_s3_connection_config()
     endpoint = s3_cfg["s3_endpoint"]
     if not endpoint.startswith("http"):
@@ -123,26 +100,23 @@ def get_delta_storage_options() -> dict[str, str]:
         "secret_access_key": s3_cfg["s3_secret_access_key"],
         "region": s3_cfg["s3_region"],
         "allow_http": "true",
-        "s3_allow_unsafe_rename": "true",  # MinIO/S3 non-atomic renames
+        # S3 has no atomic rename; safe here because each table has a single writer.
+        "s3_allow_unsafe_rename": "true",
     }
 
 
 def get_s3_paths(base_date: str):
-    """Returns the S3 URI paths for ingestion and validation layers."""
+    """S3 URIs for every layer. Single source of truth for the storage layout."""
     return {
-        # Landing (Input)
         "sales_landing": (f"s3://{S3_BUCKET_LANDING}/sales_erp/dt={base_date}/sales.csv"),
         "customers_landing": (
             f"s3://{S3_BUCKET_LANDING}/customers_crm/dt={base_date}/customers.json"
         ),
-        # Bronze (Delta)
         "sales_bronze": f"s3://{S3_BUCKET_BRONZE}/sales_erp/dt={base_date}/stg_sales_bronze",
         "customers_bronze": (
             f"s3://{S3_BUCKET_BRONZE}/customers_crm/dt={base_date}/stg_customers_bronze"
         ),
-        # Silver (Delta)
         "sales_silver": f"s3://{S3_BUCKET_SILVER}/sales/dt={base_date}",
         "customers_silver": f"s3://{S3_BUCKET_SILVER}/customers/dt={base_date}",
-        # Gold (Delta)
         "sales_summary": f"s3://{S3_BUCKET_GOLD}/sales_summary/dt={base_date}",
     }

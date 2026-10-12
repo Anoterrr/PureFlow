@@ -1,63 +1,81 @@
 name: pureflow
 
 services:
-  minio:
-    image: quay.io/minio/minio:latest
+  # S3-compatible object storage. Images are pinned by tag and digest.
+  storage:
+    image: chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
     container_name: pureflow_storage
     ports:
-      - "127.0.0.1:9000:9000" # API
-      - "127.0.0.1:9001:9001" # Web Console
+      - "127.0.0.1:18900:18900" # S3 API
     environment:
-      MINIO_ROOT_USER: ${STORAGE_USER:-admin}
-      MINIO_ROOT_PASSWORD: ${STORAGE_PASSWORD:-strongpassword123}
+      AWS_ACCESS_KEY_ID: ${STORAGE_USER:-admin}
+      AWS_SECRET_ACCESS_KEY: ${STORAGE_PASSWORD:-strongpassword123}
     volumes:
-      - ./data/minio_data:/data
-    command: server /data --console-address ":9001"
+      - ./data/seaweedfs_data:/data
+    command: >
+      server -dir=/data -ip=storage -ip.bind=0.0.0.0
+      -s3 -s3.port=18900 -s3.port.iceberg=0 -s3.port.lance=0
+      -master.volumeSizeLimitMB=1024 -volume.max=0
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ["CMD", "curl", "-f", "http://localhost:18900/healthz"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
       - pureflow_net
 
-  minio_init:
-    # quay.io, not Docker Hub: MinIO pulled their images from Hub, so the old
-    # `image: minio/mc` now fails with "pull access denied" and the whole stack
-    # never comes up. The server below was already on quay.io; this was not.
-    image: quay.io/minio/mc:latest
-    container_name: pureflow_minio_init
+  storage_init:
+    image: amazon/aws-cli:2.37.13@sha256:d32864c20087d486f5988c3e70817d67a73f584a47535cada9ad97e0ea1e5196
+    container_name: pureflow_storage_init
     depends_on:
-      minio:
+      storage:
         condition: service_healthy
     environment:
-      - STORAGE_USER=${STORAGE_USER:-admin}
-      - STORAGE_PASSWORD=${STORAGE_PASSWORD:-strongpassword123}
+      - AWS_ACCESS_KEY_ID=${STORAGE_USER:-admin}
+      - AWS_SECRET_ACCESS_KEY=${STORAGE_PASSWORD:-strongpassword123}
+      - AWS_REGION=us-east-1
     entrypoint: >
       /bin/sh -c "
-      until (/usr/bin/mc alias set pureflow http://minio:9000 $${STORAGE_USER:-admin} $${STORAGE_PASSWORD:-strongpassword123}) do echo 'Waiting for MinIO...' && sleep 1; done;
-      /usr/bin/mc mb pureflow/${S3_BUCKET_LANDING:-landing-zone} || true;
-      /usr/bin/mc mb pureflow/${S3_BUCKET_BRONZE:-bronze} || true;
-      /usr/bin/mc mb pureflow/${S3_BUCKET_SILVER:-silver} || true;
-      /usr/bin/mc mb pureflow/${S3_BUCKET_GOLD:-gold} || true;
+      until aws --endpoint-url http://storage:18900 s3 ls > /dev/null; do echo 'Waiting for storage...' && sleep 1; done;
+      for b in ${S3_BUCKET_LANDING:-landing-zone} ${S3_BUCKET_BRONZE:-bronze} ${S3_BUCKET_SILVER:-silver} ${S3_BUCKET_GOLD:-gold}; do
+        aws --endpoint-url http://storage:18900 s3api head-bucket --bucket $$b 2> /dev/null ||
+        aws --endpoint-url http://storage:18900 s3 mb s3://$$b;
+      done;
       echo '✅ Buckets created!';
-      exit 0;
       "
     networks:
       - pureflow_net
 
+  storage_console:
+    image: chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
+    container_name: pureflow_storage_console
+    ports:
+      - "127.0.0.1:18901:23646"
+    volumes:
+      - ./data/seaweedfs_console:/data
+    command: >
+      admin -master=storage:9333 -port=23646 -ip=0.0.0.0 -dataDir=/data
+      -adminUser=${STORAGE_USER:-admin} -adminPassword=${STORAGE_PASSWORD:-strongpassword123}
+    depends_on:
+      storage:
+        condition: service_healthy
+    networks:
+      - pureflow_net
+
   dagster:
-    build: .
+    build:
+      context: .
+      dockerfile: dockerfile
     container_name: pureflow_dagster
     environment:
       - DAGSTER_HOME=/app/dagster_home
       - PYTHONPATH=/app/src
       - STORAGE_USER=${STORAGE_USER:-admin}
       - STORAGE_PASSWORD=${STORAGE_PASSWORD:-strongpassword123}
-      - S3_ENDPOINT=http://minio:9000
+      - S3_ENDPOINT=http://storage:18900
       - AWS_ACCESS_KEY_ID=${STORAGE_USER:-admin}
       - AWS_SECRET_ACCESS_KEY=${STORAGE_PASSWORD:-strongpassword123}
-      - AWS_ENDPOINT_URL=http://minio:9000
+      - AWS_ENDPOINT_URL=http://storage:18900
       - AWS_REGION=us-east-1
       - IS_DOCKER=true
     working_dir: /app
@@ -66,12 +84,8 @@ services:
       - ./dagster_home:/app/dagster_home
     ports:
       - "127.0.0.1:3000:3000"
-    # MANIFEST GATE: Dagster needs a fresh dbt manifest before it can load.
-    # `dbt parse`, not `dbt compile`: compile resolves the landing sources,
-    # which makes the landing_read plugin actually read the S3 files. On a
-    # clean machine there is no landing data yet, so compile aborted and the
-    # container never started - `docker compose up` could not work from
-    # scratch. parse builds the same manifest without touching storage.
+    # `dbt parse` rather than `compile`: compile reads landing data, which does
+    # not exist yet on a fresh machine.
     command: >
       bash -c "echo '🚀 Initializing PureFlow Environment...' &&
                cd dbt &&
@@ -86,24 +100,26 @@ services:
       retries: 10
       start_period: 30s
     depends_on:
-      minio:
+      storage:
         condition: service_healthy
-      minio_init:
+      storage_init:
         condition: service_completed_successfully
     networks:
       - pureflow_net
 
   dashboard:
-    build: .
+    build:
+      context: .
+      dockerfile: dockerfile
     container_name: pureflow_dashboard
     environment:
       - STORAGE_USER=${STORAGE_USER:-admin}
       - STORAGE_PASSWORD=${STORAGE_PASSWORD:-strongpassword123}
-      - S3_ENDPOINT=http://minio:9000
+      - S3_ENDPOINT=http://storage:18900
       - PYTHONPATH=/app/src
       - AWS_ACCESS_KEY_ID=${STORAGE_USER:-admin}
       - AWS_SECRET_ACCESS_KEY=${STORAGE_PASSWORD:-strongpassword123}
-      - AWS_ENDPOINT_URL=http://minio:9000
+      - AWS_ENDPOINT_URL=http://storage:18900
       - AWS_REGION=us-east-1
       - IS_DOCKER=true
     volumes:
@@ -112,36 +128,33 @@ services:
       - "127.0.0.1:8501:8501"
     command: streamlit run /app/src/dashboard.py
     depends_on:
-      minio:
+      storage:
         condition: service_healthy
     networks:
       - pureflow_net
 
   dbt_docs:
-    build: .
+    build:
+      context: .
+      dockerfile: dockerfile
     container_name: pureflow_dbt_docs
     environment:
       - STORAGE_USER=${STORAGE_USER:-admin}
       - STORAGE_PASSWORD=${STORAGE_PASSWORD:-strongpassword123}
-      - S3_ENDPOINT=http://minio:9000
+      - S3_ENDPOINT=http://storage:18900
       - DBT_READ_ONLY=true
       - PYTHONPATH=/app/src
       - AWS_ACCESS_KEY_ID=${STORAGE_USER:-admin}
       - AWS_SECRET_ACCESS_KEY=${STORAGE_PASSWORD:-strongpassword123}
-      - AWS_ENDPOINT_URL=http://minio:9000
+      - AWS_ENDPOINT_URL=http://storage:18900
       - AWS_REGION=us-east-1
       - IS_DOCKER=true
     volumes:
       - .:/app
     ports:
-      - "127.0.0.1:8081:8081"
-      - "127.0.0.1:8082:8082"
-    # Port 8081 for dbt, 8082 for GX Reports
-    # A full `docs generate` compiles the models, which reads today's landing
-    # partition. On any day the pipeline has not run yet that partition does not
-    # exist, generate aborted, and the container exited, taking the GX report
-    # server down with it. The fallback builds the docs from the parsed manifest
-    # alone (lineage and descriptions, no compiled SQL or column types).
+      - "127.0.0.1:8081:8081" # dbt docs
+      - "127.0.0.1:8082:8082" # GX reports
+    # Falls back to docs without compiled SQL when today's landing partition does not exist.
     command: >
       bash -c "python3 -m http.server 8082 --directory /app/gx/uncommitted/data_docs/local_site &
                cd /app/dbt &&

@@ -1,7 +1,6 @@
 repos:
-  # Fast, general-purpose file hygiene checks
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: cef0300fd0fc4d2a87a85fa2093c6b283ea36f4b # frozen: v5.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
@@ -9,9 +8,7 @@ repos:
       - id: check-added-large-files
       - id: check-merge-conflict
 
-  # Python lint + format, security, and SQL lint, run through the project's own
-  # uv-managed environment so they see the exact same config/deps as `uv run ...`
-  # locally and in CI (in particular, sqlfluff needs the dbt-duckdb templater).
+  # Run through uv so the hooks use the versions pinned in uv.lock.
   - repo: local
     hooks:
       - id: ruff-lint
@@ -35,10 +32,7 @@ repos:
 
       - id: sqlfluff-lint
         name: sqlfluff lint (dbt/duckdb)
-        # PYTHONPATH=src: the dbt-duckdb templater opens a real connection to
-        # render/lint, which loads the profile's plugins (dbt_plugins.*, under
-        # src/), so those need src/ on sys.path here the same way Docker sets
-        # PYTHONPATH=/app/src for the dagster/dbt_docs containers.
+        # The dbt templater loads the profile's plugins from src/.
         entry: env PYTHONPATH=src uv run sqlfluff lint --dialect duckdb
         language: system
         files: \.sql$

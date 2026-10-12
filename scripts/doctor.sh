@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
-# scripts/doctor.sh: preflight check before running or presenting PureFlow.
-#
-# Written for bash 3.2, which is what macOS still ships. No associative
-# arrays, no ${var,,}, no mapfile. Runs on macOS, Linux and WSL alike.
-#
-# Exit code is 0 only when nothing is marked MISSING, so it is usable in CI
-# or as a gate in a script. PENDING means "works, but worth knowing".
+# Preflight check before running PureFlow. Exits non-zero if anything is MISSING.
+# Kept compatible with bash 3.2 (macOS).
 
 set -u
 
@@ -23,7 +18,7 @@ arch=$(uname -m)
 ok "$os $arch"
 case "$arch" in
   arm64 | aarch64)
-    ok "arm64: every image this project uses (python, minio, mc, uv) is built natively for it"
+    ok "arm64: every image this project uses (python, seaweedfs, aws-cli, uv) is built natively for it"
     ;;
 esac
 
@@ -35,9 +30,6 @@ if command -v docker > /dev/null 2>&1; then
   else
     missing "docker daemon not reachable (start Docker Desktop and re-run)"
   fi
-  # Compose v2 is a docker subcommand. The old hyphenated docker-compose is
-  # gone from current Docker Desktop, which is why every command in the
-  # README uses `docker compose`.
   if docker compose version > /dev/null 2>&1; then
     ok "docker compose v2 ($(docker compose version --short 2> /dev/null))"
   else
@@ -57,8 +49,7 @@ fi
 [ -f uv.lock ] && ok "uv.lock (pinned dependencies)" || missing "uv.lock"
 
 section "Ports the stack publishes"
-# Every port is bound to 127.0.0.1 by compose, so only the local machine matters.
-for entry in "3000 Dagster UI" "8501 Streamlit" "8081 dbt Docs" "8082 GX reports" "9000 MinIO API" "9001 MinIO console"; do
+for entry in "3000 Dagster UI" "8501 Streamlit" "8081 dbt Docs" "8082 GX reports" "18900 S3 storage API" "18901 Storage console"; do
   port=${entry%% *}
   name=${entry#* }
   busy=""
@@ -75,10 +66,7 @@ for entry in "3000 Dagster UI" "8501 Streamlit" "8081 dbt Docs" "8082 GX reports
 done
 
 section "Disk"
-# MinIO holds the Delta tables; a full clean run of the 1M-row generator
-# lands in the low hundreds of MB, so this is a floor, not a target.
-# Parsed with shell word splitting rather than awk: `df -P` guarantees one
-# line per filesystem, and awk is not always present on a minimal image.
+# No awk: it is missing on some minimal images.
 avail_kb=""
 if command -v df > /dev/null 2>&1; then
   df_line=$(df -Pk . 2> /dev/null | tail -1)

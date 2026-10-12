@@ -1,4 +1,4 @@
-"""Generic validation engine using Great Expectations (GX)."""
+"""Runs a list of GX expectations against a file or Delta table in S3."""
 
 import contextlib
 import os
@@ -13,13 +13,7 @@ from core.quality import get_gx_context, get_or_create_suite
 
 
 class ValidationTechnicalError(RuntimeError):
-    """Validation could not be performed at all (S3 unreachable, GX wiring broken).
-
-    This is not a data-quality verdict. Collapsing the two meant
-    an unreachable MinIO produced `success=False`, which quarantined perfectly
-    good data and reported it as a quality failure. A gate that cannot read the
-    data must fail loudly, not condemn it.
-    """
+    """The data could not be validated at all (storage unreachable, GX error). Not a quality verdict."""
 
 
 def validate_data(
@@ -29,10 +23,7 @@ def validate_data(
     suite_name: str = "dynamic_suite",
     context: Any | None = None,
 ) -> tuple[bool, str, str | None]:
-    """
-    Generic execution engine for validation.
-    Returns (success: bool, report_url: str, error_message: Optional[str]).
-    """
+    """Returns (success, report_url, error_message). Raises ValidationTechnicalError."""
     factory = ConnectionFactory()
 
     if context is None:
@@ -40,8 +31,6 @@ def validate_data(
 
     logger.info("🛡️ [Validator] Validating data at %s...", path)
 
-    # Reads via DuckDB (fast S3/Parquet/Delta access) then hands off to GX's
-    # Pandas engine, which is the stable one.
     import duckdb
 
     success = True
@@ -66,13 +55,11 @@ def validate_data(
         with duckdb.connect() as conn:
             factory.setup_s3_auth(conn)
             logger.info("⚡ [Validator] Fetching data via DuckDB...")
-            # read_func comes from the fixed whitelist above, not external input
             df = conn.execute(f"SELECT * FROM {read_func}(?)", [path]).df()  # nosec B608
 
         if df.empty:
             logger.warning("⚠️ [Validator] Data is empty at %s", path)
 
-        # Unique datasource name per run to avoid persistence conflicts in the context
         import uuid
 
         run_id = str(uuid.uuid4())[:8]
@@ -82,7 +69,6 @@ def validate_data(
 
         suite = get_or_create_suite(context, suite_name)
 
-        # Wipe and rebuild so only the expectations passed in for this call apply
         for expectation in list(suite.expectations):
             suite.delete_expectation(expectation)
 
@@ -119,11 +105,7 @@ def validate_data(
             logger.error("❌ [Validator] Validation FAILED.")
             error_msg = "Data quality validation failed (check GX report for details)."
 
-        # Report generation only, and the verdict above is already decided.
-        # Every check in a run calls this concurrently against the same
-        # gx/uncommitted/data_docs directory, and the collision was crashing
-        # whichever check lost the race - turning a passing table into a failed
-        # step. A missing report is worth a warning, never a false failure.
+        # Parallel checks build docs into the same directory; a lost race must not fail the check.
         try:
             context.build_data_docs()
         except Exception as e:
@@ -135,9 +117,6 @@ def validate_data(
             f"Could not validate {path}: {e}. This is NOT a data-quality verdict."
         ) from e
     finally:
-        # Keep the context lean between calls. Both names may be unbound if the
-        # failure happened before they were assigned, so each is guarded on its
-        # own instead of relying on suppress() swallowing a NameError.
         if val_name is not None:
             with contextlib.suppress(Exception):
                 context.validation_definitions.delete(val_name)

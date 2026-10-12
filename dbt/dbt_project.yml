@@ -12,17 +12,13 @@ macro-paths: ["macros"]
 snapshot-paths: ["snapshots"]
 
 vars:
-  # Centralized execution date: overridable via EXECUTION_DATE, otherwise
-  # defaults to this dbt invocation's own start time. No fixed date is baked in.
   execution_date: '{{ env_var("EXECUTION_DATE", run_started_at.strftime("%Y-%m-%d")) }}'
-  # Same S3_BUCKET_* variables core/config.py reads, so the dbt models and the
-  # quality gates can never point at different buckets.
+  # Same variables core/config.py reads.
   bronze_bucket: '{{ env_var("S3_BUCKET_BRONZE", "bronze") }}'
   silver_bucket: '{{ env_var("S3_BUCKET_SILVER", "silver") }}'
   gold_bucket: '{{ env_var("S3_BUCKET_GOLD", "gold") }}'
 
-# One dbt invocation per layer means the upstream layer is not in this run's
-# in-memory catalog; register it as views over its Delta tables first.
+# Each layer runs in its own dbt invocation, so upstream models are registered first.
 on-run-start:
   - "{{ register_upstream_delta_models() }}"
 
@@ -32,8 +28,7 @@ clean-targets:
 
 models:
   pureflow_dbt:
-    # Every layer materializes external + writes Delta via the delta_rw plugin
-    # (src/dbt_plugins/delta_write.py). See each model's delta_table_path.
+    # Written as Delta by src/dbt_plugins/delta_write.py.
     +materialized: external
     +format: parquet
     +plugin: delta_rw

@@ -1,7 +1,7 @@
 """Figura 2 do artigo: tempo de execução por cenário, a partir de results.json.
 
 Gerar com:
-    uv run --with matplotlib python docs/experiments/grafico_tempo.py
+    uv run python docs/experiments/grafico_tempo.py
 """
 
 import json

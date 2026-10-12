@@ -1,11 +1,7 @@
-"""dbt-duckdb read plugin for the landing zone (raw CSV/JSON, the true external
-boundary, not part of the Delta lakehouse).
+"""dbt-duckdb plugin that reads raw landing files (CSV/JSON) from S3.
 
-dbt only Jinja-renders .sql files, not `meta:` values in sources.yml, so
-`{{ var('execution_date') }}` inside `meta.external_location` never resolves.
-This plugin resolves the date in Python instead, from the EXECUTION_DATE env
-var (set by pureflow_dbt_assets in orchestration.py before invoking dbt, to
-stay in sync with the --vars execution_date the .sql models use).
+dbt does not render Jinja in sources.yml `meta`, so the partition date comes
+from EXECUTION_DATE, which orchestration.py sets before each dbt run.
 """
 
 import os
@@ -19,8 +15,6 @@ from core.connection import ConnectionFactory
 
 class Plugin(BasePlugin):
     def load(self, source_config: SourceConfig):
-        # Falls back the same way every other component does (BASE_DATE, then today
-        # in PIPELINE_TIMEZONE); a naive datetime.now() could land on another day.
         execution_date = os.environ.get("EXECUTION_DATE") or get_base_date()
         path = source_config["path_template"].format(
             landing_bucket=S3_BUCKET_LANDING, execution_date=execution_date

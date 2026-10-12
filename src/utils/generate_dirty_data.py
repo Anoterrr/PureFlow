@@ -1,4 +1,4 @@
-"""Module for generating synthetic dirty data in S3/MinIO to test validation gates."""
+"""Writes a landing zone with null ids and negative prices, which the gates must reject."""
 
 import pandas as pd
 
@@ -9,7 +9,6 @@ from utils.generators import generate_base_customers, generate_base_sales
 
 
 def generate_dirty_big_data(execution_date=None):
-    """Generates dirty sales and customer data with intentional errors."""
     factory = ConnectionFactory()
     conn = factory.get_duckdb_conn(db_path=":memory:")
     factory.setup_s3_auth(conn)
@@ -20,7 +19,6 @@ def generate_dirty_big_data(execution_date=None):
     n_customers = 1000
     logger.info("🚀 Generating %d customers (DIRTY) for date %s...", n_customers, base_date)
     customers = generate_base_customers(n_customers)
-    # created_at is an extra technical metadata field
     customers["created_at"] = [base_date] * n_customers
     df_customers = pd.DataFrame(customers)
     df_customers.loc[0:10, "id"] = None

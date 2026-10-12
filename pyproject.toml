@@ -7,35 +7,34 @@ authors = [
 ]
 license = {text = "MIT"}
 readme = "README.md"
-requires-python = ">=3.11, <3.13"
+requires-python = ">=3.12, <3.13"
 dependencies = [
-    "duckdb>=1.1.0",
-    "deltalake>=0.16.0",
-    "great-expectations>=1.1.0",
-    "pandas>=2.2.2",
-    "python-dotenv>=1.0.0",
-    "dbt-duckdb>=1.7.0",
-    "dagster>=1.7.0",
-    "dagster-webserver>=1.7.0",
-    "dagster-dbt>=0.23.0",
-    "streamlit>=1.32.0",
-    # core/quality.py parses great_expectations.yml directly; it used to ride in
-    # transitively, which breaks the moment a transitive dep drops it.
-    "pyyaml>=6.0",
+    "dagster==1.9.11",
+    "dagster-dbt==0.25.11",
+    "dagster-webserver==1.9.11",
+    "dbt-core==1.9.8",
+    "dbt-duckdb==1.11.0",
+    "deltalake==1.6.3",
+    "duckdb==1.5.5",
+    "great-expectations==1.22.0",
+    "numpy==2.5.2",
+    "pandas==3.0.5",
+    "pyarrow==25.0.1",
+    "python-dotenv==1.2.3",
+    "pyyaml==6.0.3",
+    "streamlit==1.63.0",
 ]
 
-# Kept out of the runtime dependencies so they do not ship inside the image:
-# `uv sync` installs them locally and in CI, `uv sync --no-dev` (the Dockerfile)
-# does not. Removed along the way: dagster-ge (this project deliberately uses
-# its own GX integration instead), sqlalchemy and duckdb-engine (never imported).
+# Not shipped in the image (the dockerfile runs `uv sync --no-dev`).
 [dependency-groups]
 dev = [
-    "pytest>=8.0.0",
-    "sqlfluff>=3.0.0",
-    "sqlfluff-templater-dbt>=3.0.0",
-    "bandit>=1.7.0",
-    "ruff>=0.8.0",
-    "pre-commit>=3.8.0",
+    "bandit==1.9.4",
+    "matplotlib==3.11.2",
+    "pre-commit==4.6.2",
+    "pytest==9.1.1",
+    "ruff==0.16.6",
+    "sqlfluff==4.3.0",
+    "sqlfluff-templater-dbt==4.3.0",
 ]
 
 [tool.uv]
@@ -43,14 +42,14 @@ package = false
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 src = ["src", "tests"]
 extend-exclude = ["dbt/target", "dbt/dbt_packages", "gx/uncommitted", "dagster_home"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]
 ignore = [
-    "E501",   # line length handled by ruff format
+    "E501",   # handled by ruff format
 ]
 
 [tool.sqlfluff.core]

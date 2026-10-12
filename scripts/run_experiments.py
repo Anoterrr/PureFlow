@@ -1,32 +1,13 @@
-"""Reproducible experiments behind the article's Results and Discussion section.
-
-Run inside the dagster container, with the stack up:
+"""Experiments behind the article's results. Run inside the dagster container:
 
     docker compose exec dagster python /app/scripts/run_experiments.py
 
-Two scenarios over the same dbt models:
-    A  baseline_no_gates_job   no quality gate at all (no pre-flight, no checks)
-    B  pureflow_pipeline_job   every gate in src/core/gates.py
+Scenarios: A = baseline_no_gates_job, B = pureflow_pipeline_job.
+E1 measures overhead on a clean dataset (1M sales, 100k customers): one warm-up,
+then REPS interleaved A/B runs. E2 measures detection on defective datasets,
+counting defects per layer straight from the Delta tables.
 
-E1 (overhead): clean dataset, 1,000,000 sales and 100,000 customers. One warm-up
-run per scenario, then REPS measured runs, interleaved A/B so any drift in the
-machine affects both scenarios equally.
-
-E2 (detection and propagation): four defective datasets. Each scenario runs on
-its own partition date, so neither ever reads the other's output. Defects are
-counted in every layer straight from the Delta tables, not taken from the logs.
-D4 is the one that exercises a *post-write* gate inside the real pipeline: its
-defects pass the pre-flight rules and only the Bronze check can see them, so it
-shows whether a failing Bronze check actually keeps Silver and Gold from being
-written.
-
-Per-step durations are parsed from Dagster's STEP_SUCCESS events, so the
-overhead can be split between the gates' own work and everything else.
-
-Results go to docs/experiments/results.json. Every partition the experiments
-wrote is deleted at the end: the dashboard shows the most recent Gold partition,
-and the experiment dates are in the future on purpose, so leaving them behind
-would put a defective test batch on screen.
+Results go to docs/experiments/results.json. Test partitions are deleted at the end.
 """
 
 import json
@@ -76,9 +57,7 @@ DATES_E2 = {
     "D4": {"A": "2030-04-01", "B": "2030-04-02"},
 }
 
-# D4 sizes and defects. Kept apart from the pre-flight rules on purpose: every
-# id and customer_id is present, so the landing gates pass and the defects only
-# become visible to the Bronze post-write gate (product not null, price >= 0).
+# D4 passes the landing gates; only the Bronze check (product, price) can see its defects.
 D4_SALES, D4_CUSTOMERS = 5000, 1000
 D4_NULL_PRODUCT, D4_NEGATIVE_PRICE = 25, 40
 
@@ -100,8 +79,7 @@ def run_job(job: str, date: str) -> dict:
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)  # noqa: S603
     elapsed = time.perf_counter() - start
     out = proc.stdout + proc.stderr
-    # Log lines read "... - <job> - <run_id> - <step_key> - STEP_FAILURE - ...",
-    # so the step is the field right before the event name.
+    # "... - <job> - <run_id> - <step_key> - STEP_FAILURE - ..."
     failed = set()
     for line in out.splitlines():
         fields = [f.strip() for f in line.split(" - ")]
@@ -292,8 +270,7 @@ def e2_detection(c) -> list:
             }
         results.append(entry)
 
-    # D3: corruption written straight into Bronze. Only the post-write gate can
-    # see it, and it needs a Bronze that already exists, which E1 left in place.
+    # D3 corrupts the Bronze tables E1 left in place.
     log(f"E2 D3: corrompendo a Bronze de dt={DATE_E1}")
     run = run_job("quality_test_bronze_job", DATE_E1)
     results.append(

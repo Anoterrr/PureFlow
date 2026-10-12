@@ -1,9 +1,4 @@
-"""Dagster orchestration for PureFlow.
-
-Bronze/Silver/Gold live as dbt models (dbt/models/). This module wires them
-into Dagster, plus the Great Expectations quality gates around them: a
-pre-flight check on raw landing files and a post-write @asset_check per model.
-"""
+"""Dagster definitions: dbt models per medallion layer plus the GX quality gates."""
 
 import os
 from pathlib import Path
@@ -35,23 +30,15 @@ dbt_resource = DbtCliResource(project_dir=os.fspath(DBT_PROJECT_DIR))
 
 
 class PureFlowDbtTranslator(DagsterDbtTranslator):
-    """Custom translator for PureFlow dbt assets to map sources and groups."""
-
     def get_asset_key(self, dbt_resource_props):
-        """Flat, schema-agnostic AssetKeys for both sources and models.
-
-        Sources map onto the landing-zone gate assets below by name; models get
-        a plain AssetKey(name) (instead of dagster-dbt's default schema-prefixed
-        key) so the @asset_check definitions below, which target AssetKey(name)
-        directly, actually attach to the right asset.
-        """
+        # Plain names, so sources match the landing gate assets and checks can
+        # target AssetKey(model_name).
         resource_type = dbt_resource_props.get("resource_type")
         if resource_type in ("source", "model"):
             return AssetKey(dbt_resource_props["name"])
         return super().get_asset_key(dbt_resource_props)
 
     def get_group_name(self, dbt_resource_props):
-        """Groups each model by its medallion layer (inferred from the model's folder/FQN)."""
         if dbt_resource_props.get("resource_type") == "model":
             for layer in ("bronze", "silver", "gold"):
                 if layer in dbt_resource_props.get("fqn", []):
@@ -59,34 +46,22 @@ class PureFlowDbtTranslator(DagsterDbtTranslator):
         return super().get_group_name(dbt_resource_props)
 
 
-# One dbt invocation per medallion layer, not one for the whole project. A
-# blocking @asset_check only holds back assets computed by a *different* op:
-# Dagster ignores dependencies inside a single multi-asset. With a single
-# `dbt run`, Bronze, Silver and Gold were all written before any post-write
-# check ran, so a failing Bronze check blocked nothing. Split per layer, each
-# layer's blocking checks sit between its op and the next layer's.
+# One dbt op per layer: a blocking check can only hold back assets built by a
+# different op, so a single `dbt run` would write every layer before any check.
 DBT_LAYERS = ("bronze", "silver", "gold")
 
 
 def _build_dbt_layer_assets(layer: str):
-    """Every dbt model under models/<domain>/<layer>/, materialized as Delta via delta_rw."""
-
     @dbt_assets(
         manifest=DBT_PROJECT_DIR.joinpath("target", "manifest.json"),
-        # Folder convention (models/<domain>/<layer>/), so a new domain's models are
-        # picked up with no Python change. fqn, not path: dagster-dbt resolves the
-        # selection itself and its path method does not expand the `*`.
         select=f"fqn:*.{layer}.*",
         name=f"dbt_{layer}",
         dagster_dbt_translator=PureFlowDbtTranslator(),
     )
     def _dbt_layer(context, dbt: DbtCliResource, execution_date_resource: ExecutionDateResource):
         execution_date = execution_date_resource.resolved_date
-        # The landing_read plugin (dbt_plugins/landing_source.py) can't see dbt's --vars
-        # (it only Jinja-renders .sql, not sources.yml meta), so it reads this env var
-        # directly, so it is set here to keep both resolution paths in agreement.
+        # Read by the landing_read plugin, which has no access to --vars.
         os.environ["EXECUTION_DATE"] = execution_date
-        # dbt.cli adds --select for exactly this op's models.
         yield from dbt.cli(
             ["run", "--vars", f"execution_date: {execution_date}"],
             context=context,
@@ -99,12 +74,7 @@ dbt_layer_assets = [_build_dbt_layer_assets(layer) for layer in DBT_LAYERS]
 
 
 def _run_source_gate(context, gx_resource, execution_date, path, data_format, expectations, name):
-    """Pre-flight circuit breaker: validates raw input *before* a dbt model reads it.
-
-    Raises on failure. A ValidationTechnicalError propagates untouched and
-    skips quarantine: if the gate could not read the data, it has
-    no basis to condemn it.
-    """
+    """Validates a landing file before Bronze reads it; quarantines and raises on failure."""
     engine = PureFlowEngine(execution_date=execution_date)
     success, report_url, _ = validate_data(
         path=path,
@@ -128,7 +98,7 @@ def _run_source_gate(context, gx_resource, execution_date, path, data_format, ex
 
 
 def _run_target_check(gx_resource, execution_date, path, data_format, expectations, name):
-    """Post-write circuit breaker: validates a dbt model's output, quarantining it on failure."""
+    """Validates a dbt model's output; quarantines it on a data-quality failure."""
     engine = PureFlowEngine(execution_date=execution_date)
     try:
         success, report_url, error_msg = validate_data(
@@ -139,8 +109,6 @@ def _run_target_check(gx_resource, execution_date, path, data_format, expectatio
             context=gx_resource.get_context(),
         )
     except ValidationTechnicalError as e:
-        # The check still fails, but it is tagged as technical and nothing is
-        # quarantined: the data was never read, so it was never judged.
         return AssetCheckResult(
             passed=False,
             metadata={
@@ -165,17 +133,11 @@ def _run_target_check(gx_resource, execution_date, path, data_format, expectatio
 
 
 def _build_source_gate_asset(gate: SourceGate):
-    """One pre-flight asset per SOURCE_GATES entry."""
-
     @asset(
         name=gate.name,
         group_name="landing",
         compute_kind="python",
-        # Only actually enforced when a job selects both, which is the case in
-        # quality_test_landing_job. Jobs that leave inject_corrupt_landing out
-        # (e.g. pureflow_pipeline_job) treat it as already-satisfied, per normal
-        # Dagster subset semantics. Without this edge the gate can read landing
-        # before the corruptor has finished writing it.
+        # Orders the gate after the corruptor in quality_test_landing_job.
         deps=[AssetKey("inject_corrupt_landing")],
     )
     def _source_gate(
@@ -198,8 +160,6 @@ def _build_source_gate_asset(gate: SourceGate):
 
 
 def _build_target_gate_check(gate: TargetGate):
-    """One post-write @asset_check per TARGET_GATES entry."""
-
     @asset_check(
         asset=AssetKey(gate.name),
         name=gate.dagster_check_name,
@@ -226,8 +186,6 @@ def _build_target_gate_check(gate: TargetGate):
 def _build_generator_asset(
     name: str, group: str, generate, message: str, level: str = "info", deps: tuple[str, ...] = ()
 ):
-    """One synthetic-data asset per GENERATORS entry."""
-
     @asset(
         name=name,
         group_name=group,
@@ -273,11 +231,6 @@ GENERATORS = [
         corrupt_bronze_layer,
         "🧨 Bronze Layer corrupted for {date}.",
         "warning",
-        # No deps on the Bronze models here. Depending on them would be
-        # the obvious way to land after `dbt run`, but the Bronze checks are
-        # blocking, so Dagster puts the check node between the asset and its
-        # consumers and the graph becomes corruptor -> check -> corruptor.
-        # quality_test_bronze_job solves it by leaving dbt out of the run.
         (),
     ),
 ]
@@ -287,16 +240,10 @@ target_gate_checks = [_build_target_gate_check(g) for g in TARGET_GATES]
 checks_by_gate = dict(zip([g.name for g in TARGET_GATES], target_gate_checks, strict=True))
 generator_assets = [_build_generator_asset(*spec) for spec in GENERATORS]
 
-# Built explicitly rather than via load_assets_from_current_module(): the gate
-# assets are produced by a factory, and that helper only picks up assets bound
-# to a module-level name. It also never collected @asset_check at all, which is
-# why the check list used to be maintained by hand, and could miss one.
 all_assets = [*dbt_layer_assets, *source_gate_assets, *generator_assets]
 all_asset_checks = target_gate_checks
 
-# The two data generators write to the *same* landing paths, so a job selecting
-# both races and the winner is undefined. They get one job each: you generate a
-# clean landing zone or a dirty one, never both at once.
+# Clean and dirty generators write the same paths, so each gets its own job.
 GENERATOR_GROUPS = ("clean_data", "dirty_data", "test_quality")
 
 pureflow_pipeline_job = define_asset_job(
@@ -304,11 +251,7 @@ pureflow_pipeline_job = define_asset_job(
     selection=AssetSelection.all() - AssetSelection.groups(*GENERATOR_GROUPS),
 )
 
-# Experimental baseline (Scenario A in scripts/run_experiments.py): the same
-# dbt models with every quality gate removed, i.e. no pre-flight landing assets
-# and no asset checks. Both this and pureflow_pipeline_job run through Dagster,
-# so orchestration overhead is identical and a comparison between them measures
-# the gates and nothing else.
+# Scenario A of scripts/run_experiments.py: same dbt ops, no gates.
 baseline_no_gates_job = define_asset_job(
     name="baseline_no_gates_job",
     selection=AssetSelection.groups("bronze", "silver", "gold").without_checks(),
@@ -324,26 +267,17 @@ dirty_data_generation_job = define_asset_job(
     selection=AssetSelection.groups("dirty_data"),
 )
 
-# Two separate demos, one per circuit breaker. They cannot be shown in a single
-# run any more: now that the pre-flight gate actually fires, corrupt landing
-# halts the pipeline before dbt materializes Bronze, so a Bronze corruption in
-# the same run would never be reached by anything.
 quality_test_landing_job = define_asset_job(
     name="quality_test_landing_job",
-    # Pre-flight breaker: corrupt the raw files, watch the landing gates refuse
-    # them and quarantine before a single dbt model reads them.
     selection=(
         AssetSelection.assets(AssetKey("inject_corrupt_landing")) | AssetSelection.groups("landing")
     ),
 )
 
+# Run after a clean pipeline. dbt is left out on purpose: it would rebuild
+# Bronze from clean landing and erase the corruption before the checks run.
 quality_test_bronze_job = define_asset_job(
     name="quality_test_bronze_job",
-    # Post-write breaker, run as step two: `pureflow_pipeline_job` first to
-    # materialize a clean Bronze, then this, which corrupts those Delta tables
-    # and re-runs only their blocking gates. dbt is NOT in this
-    # job: when it was, `dbt run` rebuilt Bronze from clean landing and wiped
-    # the corruption before the gate could see it.
     selection=(
         AssetSelection.assets(AssetKey("inject_corrupt_bronze"))
         | AssetSelection.checks(

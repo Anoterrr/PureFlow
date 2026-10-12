@@ -5,11 +5,9 @@ import sys
 
 
 def setup_logger():
-    """Configures the global logger for the application."""
     new_logger = logging.getLogger("pureflow")
     new_logger.setLevel(logging.INFO)
 
-    # Console Handler
     handler = logging.StreamHandler(sys.stdout)
     formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
@@ -20,5 +18,4 @@ def setup_logger():
     return new_logger
 
 
-# Initialize global logger
 logger = setup_logger()
