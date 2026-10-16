@@ -6,7 +6,11 @@
     "python": "3.12.14",
     "duckdb": "1.5.5",
     "dagster": "1.9.11",
-    "repetitions": 5
+    "repetitions": 5,
+    "run_d3_e3_utc": [
+      "2026-10-16T11:55:37+00:00",
+      "2026-10-16T11:58:46+00:00"
+    ]
   },
   "e1_overhead": {
     "generation_seconds": 1.252,
@@ -305,22 +309,298 @@
         "customers_id_null": 17,
         "customers_email_invalid": 0
       },
+      "A": {
+        "seconds": 21.838,
+        "success": true,
+        "failed_steps": [],
+        "step_seconds": {
+          "dbt_silver": 4.24,
+          "dbt_gold": 4.13
+        },
+        "quarantine_write_failed": false,
+        "errors": [],
+        "date": "2030-05-01",
+        "clean_run_success": true,
+        "corrupt_run_success": true,
+        "layers": {
+          "bronze": {
+            "sales_rows": 50,
+            "sales_id_null": 0,
+            "sales_price_negative": 50,
+            "sales_product_null": 10,
+            "customers_rows": 50,
+            "customers_id_null": 17,
+            "customers_email_invalid": 0
+          },
+          "silver": {
+            "sales_rows": 1,
+            "sales_id_null": 1,
+            "sales_price_negative": 0,
+            "sales_product_null": 1,
+            "customers_rows": 50,
+            "customers_id_null": 17,
+            "customers_email_invalid": 0
+          },
+          "gold": {
+            "rows": 1,
+            "orders": 0,
+            "orders_without_region": 0
+          }
+        },
+        "quarantined": {}
+      },
       "B": {
-        "seconds": 16.454,
+        "seconds": 11.927,
         "success": false,
         "failed_steps": [
           "stg_customers_bronze_check_stg_customers_bronze_target",
           "stg_sales_bronze_check_stg_sales_bronze_target"
         ],
-        "step_seconds": {
-          "inject_corrupt_bronze": 0.234
+        "step_seconds": {},
+        "quarantine_write_failed": false,
+        "errors": [],
+        "date": "2030-05-02",
+        "clean_run_success": true,
+        "corrupt_run_success": true,
+        "layers": {
+          "bronze": {
+            "sales_rows": 50,
+            "sales_id_null": 0,
+            "sales_price_negative": 50,
+            "sales_product_null": 10,
+            "customers_rows": 50,
+            "customers_id_null": 17,
+            "customers_email_invalid": 0
+          },
+          "silver": {
+            "sales_rows": 5000,
+            "sales_id_null": 0,
+            "sales_price_negative": 0,
+            "sales_product_null": 0,
+            "customers_rows": 1000,
+            "customers_id_null": 0,
+            "customers_email_invalid": 0
+          },
+          "gold": {
+            "rows": 5,
+            "orders": 5000,
+            "orders_without_region": 0
+          }
         },
-        "date": "2030-01-01",
         "quarantined": {
           "target_fail_stg_customers_bronze": 50,
           "target_fail_stg_sales_bronze": 50
         }
       }
     }
-  ]
+  ],
+  "e3_failures": {
+    "quarantine": [
+      {
+        "case": "F2",
+        "label": "Falha na quarentena do pre-voo (dados de D2)",
+        "seconds": 12.365,
+        "success": false,
+        "failed_steps": [
+          "customers_landing",
+          "sales_landing"
+        ],
+        "step_seconds": {},
+        "quarantine_write_failed": true,
+        "errors": [
+          "Failed to quarantine s3://landing-zone/customers_crm/dt=2030-06-01/customers.json: HTTP Error: Unable to connect to URL s3://landing-zone/quarantine/dt=2030-06-01/reason=source_fail_customers_landing/customers.json: Forbidden (HTTP code 403)",
+          "Failed to quarantine s3://landing-zone/sales_erp/dt=2030-06-01/sales.csv: HTTP Error: Unable to connect to URL s3://landing-zone/quarantine/dt=2030-06-01/reason=source_fail_sales_landing/sales.csv: Forbidden (HTTP code 403)"
+        ],
+        "date": "2030-06-01",
+        "landing_rows_after": {
+          "sales": 100,
+          "customers": 50
+        },
+        "layers": {
+          "bronze": null,
+          "silver": null,
+          "gold": null
+        },
+        "quarantined": {}
+      },
+      {
+        "case": "F3",
+        "label": "Falha na quarentena do pos-escrita (dados de D4)",
+        "seconds": 29.544,
+        "success": false,
+        "failed_steps": [
+          "stg_sales_bronze_check_stg_sales_bronze_target"
+        ],
+        "step_seconds": {
+          "customers_landing": 2.15,
+          "sales_landing": 2.17,
+          "dbt_bronze": 4.51,
+          "stg_customers_bronze_check_stg_customers_bronze_target": 2.17
+        },
+        "quarantine_write_failed": true,
+        "errors": [
+          "Failed to quarantine s3://bronze/sales_erp/dt=2030-06-02/stg_sales_bronze: HTTP Error: Unable to connect to URL s3://bronze/quarantine/dt=2030-06-02/reason=target_fail_stg_sales_bronze/stg_sales_bronze: Forbidden (HTTP code 403)"
+        ],
+        "date": "2030-06-02",
+        "landing_rows_after": {
+          "sales": 5000,
+          "customers": 1000
+        },
+        "layers": {
+          "bronze": {
+            "sales_rows": 5000,
+            "sales_id_null": 0,
+            "sales_price_negative": 40,
+            "sales_product_null": 25,
+            "customers_rows": 1000,
+            "customers_id_null": 0,
+            "customers_email_invalid": 0
+          },
+          "silver": null,
+          "gold": null
+        },
+        "quarantined": {}
+      }
+    ],
+    "write": {
+      "date": "2030-07-01",
+      "storage_killed_after_seconds": 42.47,
+      "before": {
+        "clean_run_success": true,
+        "tables": {
+          "sales_bronze": {
+            "readable": true,
+            "version": 0,
+            "rows": 5000,
+            "uncommitted_files": 0
+          },
+          "customers_bronze": {
+            "readable": true,
+            "version": 0,
+            "rows": 1000,
+            "uncommitted_files": 0
+          },
+          "sales_silver": {
+            "readable": true,
+            "version": 0,
+            "rows": 5000,
+            "uncommitted_files": 0
+          },
+          "customers_silver": {
+            "readable": true,
+            "version": 0,
+            "rows": 1000,
+            "uncommitted_files": 0
+          },
+          "sales_summary": {
+            "readable": true,
+            "version": 0,
+            "rows": 5,
+            "uncommitted_files": 0
+          }
+        }
+      },
+      "faulty_run": {
+        "seconds": 44.66,
+        "success": false,
+        "failed_steps": [
+          "dbt_silver"
+        ],
+        "step_seconds": {
+          "customers_landing": 3.0,
+          "sales_landing": 3.59,
+          "dbt_bronze": 5.51,
+          "stg_customers_bronze_check_stg_customers_bronze_target": 2.32,
+          "stg_sales_bronze_check_stg_sales_bronze_target": 2.71
+        },
+        "quarantine_write_failed": false,
+        "errors": []
+      },
+      "after_outage": {
+        "tables": {
+          "sales_bronze": {
+            "readable": true,
+            "version": 1,
+            "rows": 1000000,
+            "uncommitted_files": 0
+          },
+          "customers_bronze": {
+            "readable": true,
+            "version": 1,
+            "rows": 1000,
+            "uncommitted_files": 0
+          },
+          "sales_silver": {
+            "readable": true,
+            "version": 0,
+            "rows": 5000,
+            "uncommitted_files": 0
+          },
+          "customers_silver": {
+            "readable": true,
+            "version": 1,
+            "rows": 1000,
+            "uncommitted_files": 0
+          },
+          "sales_summary": {
+            "readable": true,
+            "version": 0,
+            "rows": 5,
+            "uncommitted_files": 0
+          }
+        }
+      },
+      "recovery": {
+        "seconds": 62.806,
+        "success": true,
+        "failed_steps": [],
+        "step_seconds": {
+          "customers_landing": 2.28,
+          "sales_landing": 2.96,
+          "dbt_bronze": 5.48,
+          "stg_customers_bronze_check_stg_customers_bronze_target": 2.33,
+          "stg_sales_bronze_check_stg_sales_bronze_target": 2.71,
+          "dbt_silver": 4.91,
+          "customers_silver_check_customers_silver_target": 2.68,
+          "sales_silver_check_sales_silver_target": 3.0,
+          "dbt_gold": 4.31,
+          "sales_summary_check_sales_summary": 2.29
+        },
+        "quarantine_write_failed": false,
+        "errors": [],
+        "tables": {
+          "sales_bronze": {
+            "readable": true,
+            "version": 2,
+            "rows": 1000000,
+            "uncommitted_files": 0
+          },
+          "customers_bronze": {
+            "readable": true,
+            "version": 2,
+            "rows": 1000,
+            "uncommitted_files": 0
+          },
+          "sales_silver": {
+            "readable": true,
+            "version": 1,
+            "rows": 1000000,
+            "uncommitted_files": 0
+          },
+          "customers_silver": {
+            "readable": true,
+            "version": 2,
+            "rows": 1000,
+            "uncommitted_files": 0
+          },
+          "sales_summary": {
+            "readable": true,
+            "version": 1,
+            "rows": 5,
+            "uncommitted_files": 0
+          }
+        }
+      }
+    }
+  }
 }

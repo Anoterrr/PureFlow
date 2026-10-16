@@ -280,7 +280,15 @@ The numbers in the article come from `scripts/run_experiments.py`, which runs in
 docker compose exec dagster python /app/scripts/run_experiments.py
 ```
 
-It compares `baseline_no_gates_job` (A) with `pureflow_pipeline_job` (B) on a clean dataset (timing, 5 interleaved runs after a warm-up) and on four defective ones (detection and propagation, counted straight from the Delta tables). Results go to `docs/experiments/results.json`; `docs/experiments/grafico_tempo.py` draws the timing chart from it. Every partition the script writes is deleted at the end.
+It compares `baseline_no_gates_job` (A) with `pureflow_pipeline_job` (B) on a clean dataset (timing, 5 interleaved runs after a warm-up) and on four defective ones (detection and propagation, counted straight from the Delta tables). It also makes the storage reject every quarantine write (`e3`), to show the gates still block when quarantine fails. `--only d3,e3` reruns part of it and keeps the rest of the file. The extra jobs and the fault live in `scripts/experiment_defs.py`, so the dev server never loads them.
+
+A storage outage in the middle of the Silver write is driven from the host, since it kills the storage container:
+
+```bash
+uv run --env-file .env python scripts/run_write_fault.py
+```
+
+Results go to `docs/experiments/results.json`; `docs/experiments/grafico_tempo.py` draws the timing chart from it. Every partition the scripts write is deleted at the end.
 
 ---
 
